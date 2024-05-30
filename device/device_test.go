@@ -1,6 +1,7 @@
 package device_test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -9,16 +10,16 @@ import (
 
 func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 	testCases := []struct {
-		command       *device.Command
+		command       *device.Packet
 		expectedBytes []byte
 		expectedError error
 	}{
 		{
-			command: &device.Command{
-				CmdType:   uint8('a'),
-				CmdId:     uint8('b'),
-				Payload:   []byte{'c', 'd'},
-				Timestamp: uint8('e'),
+			command: &device.Packet{
+				PacketType: uint8('a'),
+				CmdId:      uint8('b'),
+				Payload:    []byte{'c', 'd'},
+				Timestamp:  uint8('e'),
 			},
 		},
 	}
@@ -31,15 +32,19 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 			return
 		}
 
-		newCommand := &device.Command{}
-		err = newCommand.Deserialize(serialized)
+		fmt.Printf("serialized: %v\n", serialized)
+
+		deserialized := &device.Packet{}
+		err = deserialized.Deserialize(serialized[:])
 		if err != nil {
 			t.Errorf("deserialize error: %v", err)
 			return
 		}
 
-		if !reflect.DeepEqual(tc.command, newCommand) {
-			t.Errorf("expected: %v, got: %v", tc.command, newCommand)
+		fmt.Printf("deserialized: %v\n", deserialized)
+
+		if !reflect.DeepEqual(tc.command, deserialized) {
+			t.Errorf("expected: %v, got: %v", tc.command, deserialized)
 		}
 	}
 }

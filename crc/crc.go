@@ -69,8 +69,7 @@ var crc32Table = []uint32{
 }
 
 // CRC32 calculates the CRC-32 checksum of the given byte slice using the IEEE polynomial.
-// It implements the CRC-32 algorithm as described in https://web.mit.edu/freebsd/head/sys/libkern/crc32.c.
-// This is identical to the 
+// It implements the CRC-32 algorithm as described in https://www.mrob.com/pub/comp/crc-all.html#adler.
 func CRC32(buf []byte) uint32 {
 	r := uint32(0xffffffff)
 	for _, b := range buf {

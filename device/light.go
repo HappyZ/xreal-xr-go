@@ -11,53 +11,70 @@ import (
 )
 
 const (
-	commandTimeout = 300 * time.Millisecond
+	commandTimeout = 500 * time.Millisecond
 )
 
-type Command struct {
-	CmdType   uint8
-	CmdId     uint8
-	Payload   []byte
-	Timestamp uint8
+type Packet struct {
+	PacketType uint8
+	CmdId      uint8
+	Payload    []byte
+	Timestamp  uint8
 }
 
-func (c *Command) Deserialize(data []byte) error {
-	if len(data) < 5 || data[0] != 2 || data[len(data)-1] != 3 {
-		return fmt.Errorf("invalid input data")
+func (pkt *Packet) Deserialize(data []byte) error {
+	if len(data) < 5 || data[0] != 0x02 {
+		return fmt.Errorf("invalid input data not starting with 0x02: %v", data)
+	}
+
+	endIdx := len(data) - 1
+	for i, b := range data {
+		if b == 3 {
+			endIdx = i
+		}
+	}
+
+	if data[endIdx] != 0x03 {
+		return fmt.Errorf("invalid input data not ending with 0x03: %v", data)
 	}
 
 	// Removes start and end markers.
-	data = data[2 : len(data)-2]
+	data = data[2 : endIdx-1]
 
 	parts := bytes.Split(data, []byte{':'})
 	if len(parts) < 5 {
 		return fmt.Errorf("input date carries with insufficient information")
 	}
 
-	c.CmdType = parts[0][0]
-	c.CmdId = parts[1][0]
-	c.Payload = parts[2]
-	c.Timestamp = parts[len(parts)-2][0]
+	pkt.PacketType = parts[0][0]
+	pkt.CmdId = parts[1][0]
+	pkt.Payload = parts[2]
+	pkt.Timestamp = parts[len(parts)-2][0]
 	return nil
 }
 
-func (c *Command) Serialize() ([]byte, error) {
+// See https://voidcomputing.hu/blog/good-bad-ugly/#the-mcu-control-protocol.
+func (pkt *Packet) Serialize() ([64]byte, error) {
+	var result [64]byte
+
 	var buf bytes.Buffer
+
 	buf.WriteByte(2)
 	buf.WriteByte(':')
-	buf.WriteByte(c.CmdType)
+	buf.WriteByte(pkt.PacketType)
 	buf.WriteByte(':')
-	buf.WriteByte(c.CmdId)
+	buf.WriteByte(pkt.CmdId)
 	buf.WriteByte(':')
-	buf.Write(c.Payload)
+	buf.Write(pkt.Payload)
 	buf.WriteByte(':')
-	buf.WriteByte(c.Timestamp)
+	buf.WriteByte(pkt.Timestamp)
 	buf.WriteByte(':')
 	crc := crc.CRC32(buf.Bytes())
 	fmt.Fprintf(&buf, "%08x", crc)
 	buf.WriteByte(':')
 	buf.WriteByte(3)
-	return buf.Bytes(), nil
+	copy(result[:], buf.Bytes())
+
+	return result, nil
 }
 
 const (
@@ -142,11 +159,11 @@ func read(device *hid.Device, buffer [64]byte, timeout time.Duration) error {
 	return nil
 }
 
-func (l *xrealLight) executeAndRead(command *Command) ([]byte, error) {
+func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 	if serialized, err := command.Serialize(); err != nil {
 		return nil, fmt.Errorf("failed to serialize command %v: %v", command, err)
 	} else {
-		if err := execute(l.hidDevice, serialized); err != nil {
+		if err := execute(l.hidDevice, serialized[:]); err != nil {
 			return nil, fmt.Errorf("failed to send command %v: %v", command, err)
 		}
 	}
@@ -157,11 +174,11 @@ func (l *xrealLight) executeAndRead(command *Command) ([]byte, error) {
 			return nil, fmt.Errorf("failed to read response: %v", err)
 		}
 
-		response := &Command{}
+		response := &Packet{}
 		if err := response.Deserialize(buffer[:]); err != nil {
 			return nil, fmt.Errorf("failed to deserialize %v: %v", buffer, err)
 		}
-		if (response.CmdType == command.CmdType+1) && (response.CmdId == command.CmdId) {
+		if (response.PacketType == command.PacketType+1) && (response.CmdId == command.CmdId) {
 			return response.Payload, nil
 		}
 		// otherwise we received irrelevant data
@@ -172,7 +189,7 @@ func (l *xrealLight) executeAndRead(command *Command) ([]byte, error) {
 }
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
-	command := &Command{CmdType: '3', CmdId: '3'}
+	command := &Packet{PacketType: '3', CmdId: '3', Payload: []byte{'x'}}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to get display mode: %v", err)
@@ -206,7 +223,7 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 		return fmt.Errorf("unsupported mode: %v", mode)
 	}
 
-	command := &Command{CmdType: '1', CmdId: '3', Payload: []byte{displayMode}}
+	command := &Packet{PacketType: '1', CmdId: '3', Payload: []byte{displayMode}}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return fmt.Errorf("failed to set display mode: %v", err)
