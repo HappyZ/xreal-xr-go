@@ -208,7 +208,8 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 
 		response := &Packet{}
 		if err := response.Deserialize(buffer[:]); err != nil {
-			return nil, fmt.Errorf("failed to deserialize %v: %v", buffer, err)
+			fmt.Printf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err)
+			continue
 		}
 		if (response.PacketType == command.PacketType+1) && (response.CmdId == command.CmdId) {
 			return response.Payload, nil
@@ -233,6 +234,15 @@ func (l *xrealLight) GetSerial() (string, error) {
 	return string(response), nil
 }
 
+func (l *xrealLight) GetFirmwareVersion() (string, error) {
+	command := &Packet{PacketType: '3', CmdId: '5', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(command)
+	if err != nil {
+		return "", fmt.Errorf("failed to get firmware version: %v", err)
+	}
+	return string(response), nil
+}
+
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
 	command := &Packet{PacketType: '3', CmdId: '3', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
@@ -240,12 +250,16 @@ func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to get display mode: %v", err)
 	}
 	if response[0] == '1' {
+		// "1&2D_1080"
 		return DISPLAY_MODE_SAME_ON_BOTH, nil
 	} else if response[0] == '2' {
+		// "2&3D_540"
 		return DISPLAY_MODE_HALF_SBS, nil
 	} else if response[0] == '3' {
+		// "3&3D_1080"
 		return DISPLAY_MODE_STEREO, nil
 	} else if response[0] == '4' {
+		// "4&3D_1080#72"
 		return DISPLAY_MODE_HIGH_REFRESH_RATE, nil
 	}
 	return DISPLAY_MODE_UNKNOWN, fmt.Errorf("unrecognized response: %s", response)
@@ -269,9 +283,6 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return fmt.Errorf("failed to set display mode: %v", err)
-	}
-	if len(response) != 1 {
-		return fmt.Errorf("invalid response on command %v: %v", command, response)
 	}
 	if response[0] != displayMode {
 		return fmt.Errorf("failed to set display mode: want %d got %d", displayMode, response[0])

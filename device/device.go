@@ -16,6 +16,7 @@ type Device interface {
 	Disconnect() error
 
 	GetSerial() (string, error)
+	GetFirmwareVersion() (string, error)
 
 	GetDisplayMode() (DisplayMode, error)
 	SetDisplayMode(mode DisplayMode) error
@@ -26,14 +27,14 @@ type DisplayMode int
 
 const (
 	DISPLAY_MODE_UNKNOWN DisplayMode = iota
-	// SAME_ON_BOTH indicates that the picture should be the same for both eyes (simple full HD mode).
+	// SAME_ON_BOTH indicates that the picture should be the same for both eyes (simple 2D 1080p).
 	DISPLAY_MODE_SAME_ON_BOTH
 	// HALF_SBS sets the display to half-SBS mode, which presents itself as 1920x1080 resolution,
 	// but actually scales down everything to 960x540, then upscales to 3840x1080.
 	DISPLAY_MODE_HALF_SBS
-	// STEREO sets the display to 3840x1080 or 3840x1200, where the left half is the left eye and the right half is the right eye.
+	// STEREO sets the display to 1080p on both eyes.
 	DISPLAY_MODE_STEREO
-	// HIGH_REFRESH_RATE sets the display to mirrored high refresh rate mode.
+	// HIGH_REFRESH_RATE sets the display at 1080p 72Hz high refresh rate mode.
 	DISPLAY_MODE_HIGH_REFRESH_RATE
 )
 
