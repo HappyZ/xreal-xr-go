@@ -19,7 +19,7 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 				PacketType: uint8('a'),
 				CmdId:      uint8('b'),
 				Payload:    []byte{'c', 'd'},
-				Timestamp:  uint8('e'),
+				Timestamp:  []byte{'e', 'f'},
 			},
 		},
 	}

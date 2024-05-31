@@ -3,6 +3,7 @@ package device
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"time"
 
 	"xreal-light-xr-go/crc"
@@ -11,14 +12,14 @@ import (
 )
 
 const (
-	commandTimeout = 500 * time.Millisecond
+	commandTimeout = 1 * time.Second
 )
 
 type Packet struct {
 	PacketType uint8
 	CmdId      uint8
 	Payload    []byte
-	Timestamp  uint8
+	Timestamp  []byte
 }
 
 func (pkt *Packet) Deserialize(data []byte) error {
@@ -48,7 +49,8 @@ func (pkt *Packet) Deserialize(data []byte) error {
 	pkt.PacketType = parts[0][0]
 	pkt.CmdId = parts[1][0]
 	pkt.Payload = parts[2]
-	pkt.Timestamp = parts[len(parts)-2][0]
+	pkt.Timestamp = parts[len(parts)-2]
+
 	return nil
 }
 
@@ -58,7 +60,7 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 
 	var buf bytes.Buffer
 
-	buf.WriteByte(2)
+	buf.WriteByte(0x02)
 	buf.WriteByte(':')
 	buf.WriteByte(pkt.PacketType)
 	buf.WriteByte(':')
@@ -66,12 +68,12 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 	buf.WriteByte(':')
 	buf.Write(pkt.Payload)
 	buf.WriteByte(':')
-	buf.WriteByte(pkt.Timestamp)
+	buf.Write(pkt.Timestamp)
 	buf.WriteByte(':')
 	crc := crc.CRC32(buf.Bytes())
 	fmt.Fprintf(&buf, "%08x", crc)
 	buf.WriteByte(':')
-	buf.WriteByte(3)
+	buf.WriteByte(0x03)
 	copy(result[:], buf.Bytes())
 
 	return result, nil
@@ -98,7 +100,26 @@ func (l *xrealLight) Name() string {
 	return "XREAL LIGHT"
 }
 
-func (l *xrealLight) init() error {
+func (l *xrealLight) PID() uint16 {
+	return XREAL_LIGHT_MCU_PID
+}
+
+func (l *xrealLight) VID() uint16 {
+	return XREAL_LIGHT_MCU_VID
+}
+
+func (l *xrealLight) Disconnect() error {
+	if l.hidDevice == nil {
+		return nil
+	}
+	err := l.hidDevice.Close()
+	if err == nil {
+		l.hidDevice = nil
+	}
+	return err
+}
+
+func (l *xrealLight) Connect() error {
 	devices, err := enumerateDevices(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID)
 	if err != nil {
 		fmt.Printf("failed to enumerate hid devices: %v\n", err)
@@ -140,6 +161,7 @@ func (l *xrealLight) init() error {
 	}
 
 	l.hidDevice = hidDevice
+
 	return nil
 }
 
@@ -151,26 +173,36 @@ func execute(device *hid.Device, serialized []byte) error {
 	return nil
 }
 
-func read(device *hid.Device, buffer [64]byte, timeout time.Duration) error {
-	_, err := device.ReadWithTimeout(buffer[:], timeout)
-	if err != nil {
-		return fmt.Errorf("failed to read from device %v: %v", device, err)
+func (l *xrealLight) executeOnly(command *Packet) error {
+	if serialized, err := command.Serialize(); err != nil {
+		return fmt.Errorf("failed to serialize command %v: %v", command, err)
+	} else {
+		if err := execute(l.hidDevice, serialized[:]); err != nil {
+			return fmt.Errorf("failed to send command %v: %v", command, err)
+		}
 	}
 	return nil
 }
 
+func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
+	var buffer [64]byte
+
+	_, err := device.ReadWithTimeout(buffer[:], timeout)
+	if err != nil {
+		return buffer, fmt.Errorf("failed to read from device %v: %v", device, err)
+	}
+
+	return buffer, nil
+}
+
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
-	if serialized, err := command.Serialize(); err != nil {
-		return nil, fmt.Errorf("failed to serialize command %v: %v", command, err)
-	} else {
-		if err := execute(l.hidDevice, serialized[:]); err != nil {
-			return nil, fmt.Errorf("failed to send command %v: %v", command, err)
-		}
+	if err := l.executeOnly(command); err != nil {
+		return nil, err
 	}
 
 	for i := 0; i < 128; i++ {
-		var buffer [64]byte
-		if err := read(l.hidDevice, buffer, commandTimeout); err != nil {
+		buffer, err := read(l.hidDevice, commandTimeout)
+		if err != nil {
 			return nil, fmt.Errorf("failed to read response: %v", err)
 		}
 
@@ -188,14 +220,24 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 	return nil, nil
 }
 
+func getTimestampNow() []byte {
+	return []byte(strconv.FormatInt(time.Now().Unix(), 10))
+}
+
+func (l *xrealLight) GetSerial() (string, error) {
+	command := &Packet{PacketType: '3', CmdId: 'C', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(command)
+	if err != nil {
+		return "", fmt.Errorf("failed to get serial: %v", err)
+	}
+	return string(response), nil
+}
+
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
-	command := &Packet{PacketType: '3', CmdId: '3', Payload: []byte{'x'}}
+	command := &Packet{PacketType: '3', CmdId: '3', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to get display mode: %v", err)
-	}
-	if len(response) != 1 {
-		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("invalid response on command %v: %v", command, response)
 	}
 	if response[0] == '1' {
 		return DISPLAY_MODE_SAME_ON_BOTH, nil
@@ -206,7 +248,7 @@ func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
 	} else if response[0] == '4' {
 		return DISPLAY_MODE_HIGH_REFRESH_RATE, nil
 	}
-	return DISPLAY_MODE_UNKNOWN, fmt.Errorf("unrecognized response: %v", response)
+	return DISPLAY_MODE_UNKNOWN, fmt.Errorf("unrecognized response: %s", response)
 }
 
 func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
@@ -220,10 +262,10 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	} else if mode == DISPLAY_MODE_HIGH_REFRESH_RATE {
 		displayMode = '4'
 	} else {
-		return fmt.Errorf("unsupported mode: %v", mode)
+		return fmt.Errorf("unknown display mode: %v", mode)
 	}
 
-	command := &Packet{PacketType: '1', CmdId: '3', Payload: []byte{displayMode}}
+	command := &Packet{PacketType: '1', CmdId: '3', Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return fmt.Errorf("failed to set display mode: %v", err)
@@ -237,10 +279,13 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	return nil
 }
 
-func NewXREALLight(devicePath *string) (Device, error) {
+func NewXREALLight(devicePath *string, serialNumber *string) Device {
 	var l xrealLight
 	if devicePath != nil {
 		l.devicePath = devicePath
 	}
-	return &l, l.init()
+	if serialNumber != nil {
+		l.serialNumber = serialNumber
+	}
+	return &l
 }
