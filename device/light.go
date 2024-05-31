@@ -188,6 +188,8 @@ func (l *xrealLight) Connect() error {
 func (l *xrealLight) initialize() error {
 	// Initialize the stop channel
 	l.stopHeartBeatChannel = make(chan struct{})
+	l.waitgroup.Add(1)
+	go l.sendPeriodicHeartBeat()
 
 	// Sends an "SDK works" message
 	command := &Packet{PacketType: '@', CmdId: '3', Payload: []byte{'1'}, Timestamp: getTimestampNow()}
@@ -195,9 +197,6 @@ func (l *xrealLight) initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to send SDK works message: %v", err)
 	}
-
-	l.waitgroup.Add(1)
-	go l.sendPeriodicHeartBeat()
 
 	return nil
 }
@@ -271,7 +270,9 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 		}
 
 		for i := 0; i < 128; i++ {
+			l.mutex.Lock()
 			buffer, err := read(l.hidDevice, commandTimeout)
+			l.mutex.Unlock()
 			if err != nil {
 				return nil, fmt.Errorf("failed to read response: %v", err)
 			}
