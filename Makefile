@@ -1,12 +1,13 @@
 # Go parameters
 GOCMD=go
-GOBUILD=$(GOCMD) build
-GOCLEAN=$(GOCMD) clean
-GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
+GOBUILD=${GOCMD} build
+GOCLEAN=${GOCMD} clean
+GOTEST=${GOCMD} test
+GOGET=${GOCMD} get
 
-# Binary name
-BINARY_NAME=xreallightxr
+# Binary
+BINARY_PATH=./build-bin
+BINARY_NAME=xrealxr
 
 # Source files
 SOURCES=$(wildcard *.go)
@@ -14,17 +15,18 @@ SOURCES=$(wildcard *.go)
 all: test build
 
 build:
-	$(GOBUILD) -o /tmp/$(BINARY_NAME) -v
+	mkdir -p ${BINARY_PATH}
+	${GOBUILD} -o ${BINARY_PATH}/${BINARY_NAME} -v
 
 test:
-	$(GOTEST) -v ./...
+	${GOTEST} -v ./...
 
 clean:
-	$(GOCLEAN)
-	rm -f $(BINARY_NAME)
+	${GOCLEAN}
+	rm -rf ${BINARY_PATH}
 
 run:
-	$(GOBUILD) -o /tmp/$(BINARY_NAME) -v ./...
-	/tmp/$(BINARY_NAME) $(ARGS)
+	$(GOBUILD) -o ${BINARY_PATH}/${BINARY_NAME} -v ./...
+	${BINARY_PATH}/${BINARY_NAME} ${ARGS}
 
 .PHONY: all build test clean run
