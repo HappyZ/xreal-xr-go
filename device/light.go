@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"xreal-light-xr-go/crc"
@@ -12,7 +14,9 @@ import (
 )
 
 const (
-	commandTimeout = 1 * time.Second
+	commandTimeout   = 300 * time.Millisecond
+	heartBeatTimeout = 1 * time.Second
+	retryMaxAttempts = 3
 )
 
 type Packet struct {
@@ -23,8 +27,11 @@ type Packet struct {
 }
 
 func (pkt *Packet) Deserialize(data []byte) error {
-	if len(data) < 5 || data[0] != 0x02 {
-		return fmt.Errorf("invalid input data not starting with 0x02: %v", data)
+	if data[0] != 0x02 {
+		if data[0] == 'C' {
+			return fmt.Errorf("got CRC ERROR")
+		}
+		return fmt.Errorf("unrecognized data input")
 	}
 
 	endIdx := len(data) - 1
@@ -94,6 +101,13 @@ type xrealLight struct {
 	serialNumber *string
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
+
+	// mutex for thread safety
+	mutex sync.Mutex
+	// waitgroup to wait for heart beat to stop sending
+	waitgroup sync.WaitGroup
+	// channel to signal heart beat to stop
+	stopHeartBeatChannel chan struct{}
 }
 
 func (l *xrealLight) Name() string {
@@ -112,6 +126,12 @@ func (l *xrealLight) Disconnect() error {
 	if l.hidDevice == nil {
 		return nil
 	}
+
+	// Sends signal to stop heart beat channel and wait for it
+	close(l.stopHeartBeatChannel)
+	l.waitgroup.Wait()
+
+	// Properly closes the hid device opened
 	err := l.hidDevice.Close()
 	if err == nil {
 		l.hidDevice = nil
@@ -162,7 +182,52 @@ func (l *xrealLight) Connect() error {
 
 	l.hidDevice = hidDevice
 
+	return l.initialize()
+}
+
+func (l *xrealLight) initialize() error {
+	// Initialize the stop channel
+	l.stopHeartBeatChannel = make(chan struct{})
+
+	// Sends an "SDK works" message
+	command := &Packet{PacketType: '@', CmdId: '3', Payload: []byte{'1'}, Timestamp: getTimestampNow()}
+	err := l.executeOnly(command)
+	if err != nil {
+		return fmt.Errorf("failed to send SDK works message: %v", err)
+	}
+
+	l.waitgroup.Add(1)
+	go l.sendPeriodicHeartBeat()
+
 	return nil
+}
+
+func (l *xrealLight) sendHeartBeat() error {
+	command := &Packet{PacketType: '@', CmdId: 'K', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	err := l.executeOnly(command)
+	if err != nil {
+		return fmt.Errorf("failed to send a heart beat: %v", err)
+	}
+	return nil
+}
+
+func (l *xrealLight) sendPeriodicHeartBeat() {
+	defer l.waitgroup.Done()
+
+	ticker := time.NewTicker(heartBeatTimeout)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			err := l.sendHeartBeat()
+			if err != nil {
+				fmt.Printf("error sending heartbeat: %v\n", err)
+			}
+		case <-l.stopHeartBeatChannel:
+			return
+		}
+	}
 }
 
 func execute(device *hid.Device, serialized []byte) error {
@@ -174,6 +239,10 @@ func execute(device *hid.Device, serialized []byte) error {
 }
 
 func (l *xrealLight) executeOnly(command *Packet) error {
+	l.mutex.Lock()
+
+	defer l.mutex.Unlock()
+
 	if serialized, err := command.Serialize(); err != nil {
 		return fmt.Errorf("failed to serialize command %v: %v", command, err)
 	} else {
@@ -196,28 +265,35 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 }
 
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
-	if err := l.executeOnly(command); err != nil {
-		return nil, err
+	for retry := 0; retry < retryMaxAttempts; retry++ {
+		if err := l.executeOnly(command); err != nil {
+			return nil, err
+		}
+
+		for i := 0; i < 128; i++ {
+			buffer, err := read(l.hidDevice, commandTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read response: %v", err)
+			}
+
+			response := &Packet{}
+			if err := response.Deserialize(buffer[:]); err != nil {
+				fmt.Printf("failed to deserialize %v: %v\n", buffer, err)
+
+				if strings.Contains(string(buffer[:]), "CRC ERROR") {
+					if retry == retryMaxAttempts-1 {
+						return nil, fmt.Errorf("failed to deserialize %v: %v", buffer, err)
+					}
+				}
+				break
+			}
+			if (response.PacketType == command.PacketType+1) && (response.CmdId == command.CmdId) {
+				return response.Payload, nil
+			}
+			// otherwise we received irrelevant data
+			// TODO(happyz): Handles irrelevant data
+		}
 	}
-
-	for i := 0; i < 128; i++ {
-		buffer, err := read(l.hidDevice, commandTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read response: %v", err)
-		}
-
-		response := &Packet{}
-		if err := response.Deserialize(buffer[:]); err != nil {
-			fmt.Printf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err)
-			continue
-		}
-		if (response.PacketType == command.PacketType+1) && (response.CmdId == command.CmdId) {
-			return response.Payload, nil
-		}
-		// otherwise we received irrelevant data
-		// TODO(happyz): Handles irrelevant data
-	}
-
 	return nil, nil
 }
 

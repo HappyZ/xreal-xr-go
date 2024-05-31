@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 
 	"xreal-light-xr-go/device"
 )
@@ -20,21 +22,18 @@ func main() {
 	serial, err := light.GetSerial()
 	if err != nil {
 		fmt.Println(err)
-		return
 	}
 	fmt.Println("serial: ", serial)
 
 	firmware, err := light.GetFirmwareVersion()
 	if err != nil {
 		fmt.Println(err)
-		return
 	}
 	fmt.Println("firmware: ", firmware)
 
 	mode, err := light.GetDisplayMode()
 	if err != nil {
 		fmt.Printf("failed to get display mode: %v\n", err)
-		return
 	}
 	fmt.Printf("mode: %s\n", mode.String())
 
@@ -44,4 +43,8 @@ func main() {
 	} else {
 		fmt.Printf("mode has set to: %s\n", device.DISPLAY_MODE_STEREO.String())
 	}
+
+	fmt.Println("Press enter to stop...")
+	reader := bufio.NewReader(os.Stdin)
+	reader.ReadString('\n')
 }
