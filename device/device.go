@@ -1,8 +1,6 @@
 package device
 
 import (
-	"fmt"
-
 	hid "github.com/sstallion/go-hid"
 )
 
@@ -23,36 +21,26 @@ type Device interface {
 }
 
 // DisplayMode represents the display mode of AR glasses.
-type DisplayMode int
+type DisplayMode string
 
 const (
-	DISPLAY_MODE_UNKNOWN DisplayMode = iota
+	DISPLAY_MODE_UNKNOWN DisplayMode = "UNKNOWN"
 	// SAME_ON_BOTH indicates that the picture should be the same for both eyes (simple 2D 1080p).
-	DISPLAY_MODE_SAME_ON_BOTH
+	DISPLAY_MODE_SAME_ON_BOTH DisplayMode = "SAME_ON_BOTH"
 	// HALF_SBS sets the display to half-SBS mode, which presents itself as 1920x1080 resolution,
 	// but actually scales down everything to 960x540, then upscales to 3840x1080.
-	DISPLAY_MODE_HALF_SBS
+	DISPLAY_MODE_HALF_SBS DisplayMode = "HALF_SBS"
 	// STEREO sets the display to 1080p on both eyes.
-	DISPLAY_MODE_STEREO
+	DISPLAY_MODE_STEREO DisplayMode = "STEREO"
 	// HIGH_REFRESH_RATE sets the display at 1080p 72Hz high refresh rate mode.
-	DISPLAY_MODE_HIGH_REFRESH_RATE
+	DISPLAY_MODE_HIGH_REFRESH_RATE DisplayMode = "HIGH_REFRESH_RATE"
 )
 
-func (dm DisplayMode) String() string {
-	switch dm {
-	case DISPLAY_MODE_UNKNOWN:
-		return "Unknown"
-	case DISPLAY_MODE_SAME_ON_BOTH:
-		return "Same on Both"
-	case DISPLAY_MODE_HALF_SBS:
-		return "Half SBS"
-	case DISPLAY_MODE_STEREO:
-		return "Stereo"
-	case DISPLAY_MODE_HIGH_REFRESH_RATE:
-		return "High Refresh Rate"
-	default:
-		return fmt.Sprintf("Unknown Display Mode (%d)", dm)
-	}
+var SupportedDisplayMode = map[string]struct{}{
+	string(DISPLAY_MODE_SAME_ON_BOTH):      {},
+	string(DISPLAY_MODE_HALF_SBS):          {},
+	string(DISPLAY_MODE_STEREO):            {},
+	string(DISPLAY_MODE_HIGH_REFRESH_RATE): {},
 }
 
 func enumerateDevices(vid, pid uint16) ([]*hid.DeviceInfo, error) {

@@ -2,6 +2,7 @@ package device_test
 
 import (
 	"fmt"
+	"log/slog"
 	"reflect"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 			return
 		}
 
-		fmt.Printf("serialized: %v\n", serialized)
+		slog.Info(fmt.Sprintf("serialized: %v\n", serialized))
 
 		deserialized := &device.Packet{}
 		err = deserialized.Deserialize(serialized[:])
@@ -41,7 +42,7 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 			return
 		}
 
-		fmt.Printf("deserialized: %v\n", deserialized)
+		slog.Info(fmt.Sprintf("deserialized: %v\n", deserialized))
 
 		if !reflect.DeepEqual(tc.command, deserialized) {
 			t.Errorf("expected: %v, got: %v", tc.command, deserialized)
