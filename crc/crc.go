@@ -73,7 +73,7 @@ var crc32Table = []uint32{
 func CRC32(buf []byte) uint32 {
 	r := uint32(0xffffffff)
 	for _, b := range buf {
-		r = (r >> 8) ^ crc32Table[(uint32(b)^r)&0xff]
+		r = ((r >> 8) & 0xFFFFFF) ^ crc32Table[(uint32(b)^r)&0xff]
 	}
 	return ^r
 }

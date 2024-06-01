@@ -18,6 +18,9 @@ type Device interface {
 
 	GetDisplayMode() (DisplayMode, error)
 	SetDisplayMode(mode DisplayMode) error
+
+	// For development testing only
+	PrintExhaustiveCommandTable() error
 }
 
 // DisplayMode represents the display mode of AR glasses.
@@ -51,3 +54,5 @@ func enumerateDevices(vid, pid uint16) ([]*hid.DeviceInfo, error) {
 	})
 	return devices, err
 }
+
+// TODO(happyz): Adds hotplug detection once https://github.com/libusb/hidapi/pull/674 is resolved.

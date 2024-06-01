@@ -2,9 +2,9 @@ package device
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +17,7 @@ import (
 const (
 	commandTimeout   = 300 * time.Millisecond
 	heartBeatTimeout = 1 * time.Second
-	retryMaxAttempts = 5
+	retryMaxAttempts = 20
 	retryBackoffTime = 500 * time.Millisecond
 )
 
@@ -26,6 +26,24 @@ type Packet struct {
 	CmdId      uint8
 	Payload    []byte
 	Timestamp  []byte
+}
+
+func (pkt *Packet) DecodeTimestamp() time.Time {
+	var t time.Time
+	if (pkt.Timestamp == nil) || len(pkt.Timestamp) == 0 {
+		return t
+	}
+	bytes, err := hex.DecodeString(string(pkt.Timestamp))
+	if err != nil {
+		slog.Error(fmt.Sprintf("failed to decode timestamp %v to hex: %v", pkt.Timestamp, err))
+		return t
+	}
+	milliseconds := int64(0)
+	for _, b := range bytes {
+		milliseconds = (milliseconds << 8) | int64(b)
+	}
+	t = time.Unix(0, milliseconds*int64(time.Millisecond))
+	return t
 }
 
 func (pkt *Packet) Deserialize(data []byte) error {
@@ -280,12 +298,12 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 
 			response := &Packet{}
 			if err := response.Deserialize(buffer[:]); err != nil {
-				slog.Error(fmt.Sprintf("failed to deserialize %v: %v\n", buffer, err))
+				slog.Error(fmt.Sprintf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err))
 
 				// We can retry if got CRC ERROR
 				if strings.Contains(string(buffer[:]), "CRC ERROR") {
 					if retry == retryMaxAttempts-1 {
-						return nil, fmt.Errorf("failed to deserialize %v: %w", buffer, err)
+						return nil, fmt.Errorf("failed to deserialize %v (%s): %w", buffer, string(buffer[:]), err)
 					}
 				}
 
@@ -304,7 +322,7 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 }
 
 func getTimestampNow() []byte {
-	return []byte(strconv.FormatInt(time.Now().Unix(), 10))
+	return []byte(fmt.Sprintf("%x", (time.Now().UnixMilli())))
 }
 
 func (l *xrealLight) GetSerial() (string, error) {
@@ -368,6 +386,44 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	}
 	if response[0] != displayMode {
 		return fmt.Errorf("failed to set display mode: want %d got %d", displayMode, response[0])
+	}
+	return nil
+}
+
+func (l *xrealLight) PrintExhaustiveCommandTable() error {
+	slog.Debug("")
+	slog.Debug("PacketType : CommandId : Payload : Purpose : Output")
+	slog.Debug("---")
+	// we loop through ASCII char that doesn't have special meanings
+	for i := uint8(0x20); i < 0x7F; i++ {
+		command := &Packet{PacketType: '3', CmdId: i, Payload: []byte{' '}, Timestamp: getTimestampNow()}
+		response, err := l.executeAndRead(command)
+		var purpose string
+		switch i {
+		case 0x35: // '5'
+			purpose = "firmware version"
+		case 0x43: // 'C'
+			purpose = "device serial number"
+		case 0x4c: // 'L'
+			purpose = "ambient light reporting enabled"
+		case 0x4e: // 'N'
+			purpose = "v-sync event enabled"
+		case 0x55: // 'U'
+			purpose = "magnetometer enabled"
+		case 0x65: // 'e'
+			purpose = "whether activated"
+		case 0x66: // 'f'
+			purpose = "activation time"
+		case 0x68: // 'h'
+			purpose = "RGB camera enabled"
+		default:
+			purpose = "unknown"
+		}
+		if err != nil {
+			slog.Error(fmt.Sprintf("('3' : '%c' : ' ' : %s : '%s') failed: %v", i, purpose, string(response), err))
+			continue
+		}
+		slog.Debug(fmt.Sprintf("'3' : '%c' : ' ' : %s : '%s'", i, purpose, string(response)))
 	}
 	return nil
 }

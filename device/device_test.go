@@ -20,7 +20,7 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 				PacketType: uint8('a'),
 				CmdId:      uint8('b'),
 				Payload:    []byte{'c', 'd'},
-				Timestamp:  []byte{'e', 'f'},
+				Timestamp:  []byte("18fd37a61db"), // epoch: 1717239964 (seconds) 123 (milliseconds)
 			},
 		},
 	}
