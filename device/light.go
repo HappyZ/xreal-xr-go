@@ -2,10 +2,9 @@ package device
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,10 +14,11 @@ import (
 )
 
 const (
-	commandTimeout   = 300 * time.Millisecond
-	heartBeatTimeout = 1 * time.Second
-	retryMaxAttempts = 20
-	retryBackoffTime = 500 * time.Millisecond
+	readDeviceTimeout      = 300 * time.Millisecond
+	writeReadDelay         = 100 * time.Millisecond
+	heartBeatTimeout       = 1 * time.Second
+	retryMaxAttempts       = 5
+	retryBackoffIncrements = 100 * time.Millisecond
 )
 
 type Packet struct {
@@ -26,6 +26,8 @@ type Packet struct {
 	CmdId      uint8
 	Payload    []byte
 	Timestamp  []byte
+	// Only set if is CRC ERROR or unable to deserialize
+	RawMessage string
 }
 
 func (pkt *Packet) DecodeTimestamp() time.Time {
@@ -33,25 +35,50 @@ func (pkt *Packet) DecodeTimestamp() time.Time {
 	if (pkt.Timestamp == nil) || len(pkt.Timestamp) == 0 {
 		return t
 	}
-	bytes, err := hex.DecodeString(string(pkt.Timestamp))
+	hexStr := string(pkt.Timestamp)
+	milliseconds, err := strconv.ParseInt(hexStr, 16, 64)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to decode timestamp %v to hex: %v", pkt.Timestamp, err))
+		slog.Error(fmt.Sprintf("failed to parse %s (%v) to int64: %v", hexStr, pkt.Timestamp, err))
 		return t
-	}
-	milliseconds := int64(0)
-	for _, b := range bytes {
-		milliseconds = (milliseconds << 8) | int64(b)
 	}
 	t = time.Unix(0, milliseconds*int64(time.Millisecond))
 	return t
 }
 
+func (pkt *Packet) String() string {
+	serialized, err := pkt.Serialize()
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s (at time %v)", string(serialized[:]), pkt.DecodeTimestamp())
+}
+
 func (pkt *Packet) Deserialize(data []byte) error {
+	if data[0] == 'C' {
+		// This is a CRC Error packet, e.g. "CAL CRC ERROR:20000614:200152e8"
+
+		// endIdx := len(data) - 1
+		// for i, b := range data {
+		// 	if b == 0 {
+		// 		break
+		// 	}
+		// 	endIdx = i
+		// }
+
+		// data = data[:endIdx-1]
+
+		// parts := bytes.Split(data, []byte{':'})
+		// if len(parts) < 3 {
+		// 	return fmt.Errorf("input date carries with insufficient information")
+		// }
+
+		pkt.RawMessage = string(data)
+		return nil
+	}
+
 	if data[0] != 0x02 {
-		if data[0] == 'C' {
-			return fmt.Errorf("got CRC ERROR")
-		}
-		return fmt.Errorf("unrecognized data input")
+		pkt.RawMessage = string(data)
+		return fmt.Errorf("unrecognized data format")
 	}
 
 	endIdx := len(data) - 1
@@ -86,6 +113,12 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 	var result [64]byte
 
 	var buf bytes.Buffer
+
+	if pkt.RawMessage != "" {
+		buf.Write([]byte(pkt.RawMessage))
+	} else if (pkt.PacketType == 0) || (pkt.CmdId == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
+		return result, fmt.Errorf("this Packet is not initialized?")
+	}
 
 	buf.WriteByte(0x02)
 	buf.WriteByte(':')
@@ -283,39 +316,41 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 }
 
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
+	backoffTime := writeReadDelay
+
 	for retry := 0; retry < retryMaxAttempts; retry++ {
 		if err := l.executeOnly(command); err != nil {
 			return nil, err
 		}
 
+		fmt.Println("sleep backoffTime", backoffTime)
+		time.Sleep(backoffTime)
+
 		for i := 0; i < 128; i++ {
-			l.mutex.Lock()
-			buffer, err := read(l.hidDevice, commandTimeout)
-			l.mutex.Unlock()
+			buffer, err := read(l.hidDevice, readDeviceTimeout)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read response: %w", err)
+				slog.Debug(fmt.Sprintf("failed to read response: %v", err))
+				backoffTime += retryBackoffIncrements
+				break
 			}
 
 			response := &Packet{}
+
 			if err := response.Deserialize(buffer[:]); err != nil {
-				slog.Error(fmt.Sprintf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err))
-
-				// We can retry if got CRC ERROR
-				if strings.Contains(string(buffer[:]), "CRC ERROR") {
-					if retry == retryMaxAttempts-1 {
-						return nil, fmt.Errorf("failed to deserialize %v (%s): %w", buffer, string(buffer[:]), err)
-					}
-				}
-
-				// Wait for some time before the next try
-				time.Sleep(retryBackoffTime)
+				slog.Debug(fmt.Sprintf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err))
+				backoffTime += retryBackoffIncrements
 				break
 			}
+
 			if (response.PacketType == command.PacketType+1) && (response.CmdId == command.CmdId) {
 				return response.Payload, nil
 			}
 			// otherwise we received irrelevant data
 			// TODO(happyz): Handles irrelevant data
+
+			fmt.Println("response", response.String())
+			fmt.Println("sleep retryBackoffIncrements", retryBackoffIncrements)
+			// time.Sleep(retryBackoffIncrements)
 		}
 	}
 	return nil, nil
@@ -398,6 +433,8 @@ func (l *xrealLight) PrintExhaustiveCommandTable() error {
 	for i := uint8(0x20); i < 0x7F; i++ {
 		command := &Packet{PacketType: '3', CmdId: i, Payload: []byte{' '}, Timestamp: getTimestampNow()}
 		response, err := l.executeAndRead(command)
+
+		// not sure the purpose is related to firmware version, below is checked on FW 05.5.08.059_20230518
 		var purpose string
 		switch i {
 		case 0x35: // '5'
@@ -416,14 +453,16 @@ func (l *xrealLight) PrintExhaustiveCommandTable() error {
 			purpose = "activation time"
 		case 0x68: // 'h'
 			purpose = "RGB camera enabled"
+		case 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2e:
+			purpose = "n/a"
 		default:
 			purpose = "unknown"
 		}
 		if err != nil {
-			slog.Error(fmt.Sprintf("('3' : '%c' : ' ' : %s : '%s') failed: %v", i, purpose, string(response), err))
+			slog.Error(fmt.Sprintf("('3' : '0x%x (%c)' : ' ' : %s : '%s') failed: %v", i, i, purpose, string(response), err))
 			continue
 		}
-		slog.Debug(fmt.Sprintf("'3' : '%c' : ' ' : %s : '%s'", i, purpose, string(response)))
+		slog.Info(fmt.Sprintf("'3' : '0x%x (%c)' : ' ' : %s : '%s'", i, i, purpose, string(response)))
 	}
 	return nil
 }

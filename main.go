@@ -85,8 +85,6 @@ func main() {
 		}
 
 		switch {
-		case strings.HasPrefix(input, "exit"), strings.HasPrefix(input, "quit"), strings.HasPrefix(input, "stop"):
-			return
 		case strings.HasPrefix(input, "get"):
 			handleGetCommand(light, input)
 		case strings.HasPrefix(input, "set"):
@@ -94,6 +92,12 @@ func main() {
 		case strings.HasPrefix(input, "test"):
 			handleDevTestCommand(light, input)
 		default:
+			if input == "" {
+				continue
+			}
+			if (input == "exit") || (input == "quit") || (input == "stop") || (input == "q") {
+				return
+			}
 			slog.Error("unknown command")
 		}
 	}
