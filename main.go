@@ -9,6 +9,8 @@ import (
 
 	"xreal-light-xr-go/constant"
 	"xreal-light-xr-go/device"
+
+	"github.com/peterh/liner"
 )
 
 func parseFlags() constant.Config {
@@ -57,11 +59,26 @@ func main() {
 		}
 	}
 
-	for {
-		fmt.Println(">> ")
+	line := liner.NewLiner()
+	defer line.Close()
 
-		var input string
-		fmt.Scanln(&input)
+	line.SetCtrlCAborts(true)
+
+	for {
+		input, err := line.Prompt(">> ")
+		if err != nil {
+			if err == liner.ErrPromptAborted {
+				slog.Warn("aborted")
+				return
+			}
+			slog.Error(fmt.Sprintf("error reading input: %v", err))
+			return
+		}
+
+		input = strings.TrimSpace(input)
+		if input != "" {
+			line.AppendHistory(input)
+		}
 
 		switch {
 		case strings.HasPrefix(input, "exit"), strings.HasPrefix(input, "quit"), strings.HasPrefix(input, "stop"):
@@ -78,7 +95,7 @@ func main() {
 func handleGetCommand(light device.Device, input string) {
 	parts := strings.Split(input, " ")
 	if len(parts) != 2 {
-		slog.Error("invalid command format. Use 'get <command>'")
+		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'get <command>'", parts, len(parts)))
 		return
 	}
 
@@ -107,7 +124,7 @@ func handleGetCommand(light device.Device, input string) {
 func handleSetCommand(light device.Device, input string) {
 	parts := strings.Split(input, " ")
 	if len(parts) < 3 {
-		slog.Error("invalid command format. Use 'set <command> <args>'")
+		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'set <command> <args>'", parts, len(parts)))
 		return
 	}
 
