@@ -1,4 +1,4 @@
-# xreal-light-xr-go
+# xreal-xr-go
 
 XREAL Light XR stuff. This is for personal interests and research.
 

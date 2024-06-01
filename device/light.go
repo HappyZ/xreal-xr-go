@@ -14,11 +14,9 @@ import (
 )
 
 const (
-	readDeviceTimeout      = 300 * time.Millisecond
-	writeReadDelay         = 100 * time.Millisecond
-	heartBeatTimeout       = 1 * time.Second
-	retryMaxAttempts       = 5
-	retryBackoffIncrements = 100 * time.Millisecond
+	readDeviceTimeout = 300 * time.Millisecond
+	heartBeatTimeout  = 1 * time.Second
+	retryMaxAttempts  = 5
 )
 
 type Packet struct {
@@ -243,12 +241,13 @@ func (l *xrealLight) initialize() error {
 	l.waitgroup.Add(1)
 	go l.sendPeriodicHeartBeat()
 
+	// Disabled below because it is not necessary to send this if not in SBS mode
 	// Sends an "SDK works" message
-	command := &Packet{PacketType: '@', CmdId: '3', Payload: []byte{'1'}, Timestamp: getTimestampNow()}
-	err := l.executeOnly(command)
-	if err != nil {
-		return fmt.Errorf("failed to send SDK works message: %w", err)
-	}
+	// command := &Packet{PacketType: '@', CmdId: '3', Payload: []byte{'1'}, Timestamp: getTimestampNow()}
+	// err := l.executeOnly(command)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to send SDK works message: %w", err)
+	// }
 
 	return nil
 }
@@ -316,21 +315,15 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 }
 
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
-	backoffTime := writeReadDelay
-
 	for retry := 0; retry < retryMaxAttempts; retry++ {
 		if err := l.executeOnly(command); err != nil {
 			return nil, err
 		}
 
-		fmt.Println("sleep backoffTime", backoffTime)
-		time.Sleep(backoffTime)
-
 		for i := 0; i < 128; i++ {
 			buffer, err := read(l.hidDevice, readDeviceTimeout)
 			if err != nil {
 				slog.Debug(fmt.Sprintf("failed to read response: %v", err))
-				backoffTime += retryBackoffIncrements
 				break
 			}
 
@@ -338,7 +331,6 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 
 			if err := response.Deserialize(buffer[:]); err != nil {
 				slog.Debug(fmt.Sprintf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err))
-				backoffTime += retryBackoffIncrements
 				break
 			}
 
@@ -348,9 +340,7 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 			// otherwise we received irrelevant data
 			// TODO(happyz): Handles irrelevant data
 
-			fmt.Println("response", response.String())
-			fmt.Println("sleep retryBackoffIncrements", retryBackoffIncrements)
-			// time.Sleep(retryBackoffIncrements)
+			slog.Debug(fmt.Sprintf("got unhandled response %s", response.String()))
 		}
 	}
 	return nil, nil
@@ -426,9 +416,9 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 }
 
 func (l *xrealLight) PrintExhaustiveCommandTable() error {
-	slog.Debug("")
-	slog.Debug("PacketType : CommandId : Payload : Purpose : Output")
-	slog.Debug("---")
+	slog.Info("")
+	slog.Info("PacketType : CommandId : Payload : Purpose : Output")
+	slog.Info("---")
 	// we loop through ASCII char that doesn't have special meanings
 	for i := uint8(0x20); i < 0x7F; i++ {
 		command := &Packet{PacketType: '3', CmdId: i, Payload: []byte{' '}, Timestamp: getTimestampNow()}
@@ -453,8 +443,10 @@ func (l *xrealLight) PrintExhaustiveCommandTable() error {
 			purpose = "activation time"
 		case 0x68: // 'h'
 			purpose = "RGB camera enabled"
-		case 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2e:
-			purpose = "n/a"
+		case 0x69: // 'i'
+			purpose = "Stereo camera enabled"
+		case 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
+			purpose = "not exist"
 		default:
 			purpose = "unknown"
 		}
@@ -464,6 +456,7 @@ func (l *xrealLight) PrintExhaustiveCommandTable() error {
 		}
 		slog.Info(fmt.Sprintf("'3' : '0x%x (%c)' : ' ' : %s : '%s'", i, i, purpose, string(response)))
 	}
+	slog.Info("")
 	return nil
 }
 
