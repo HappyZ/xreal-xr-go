@@ -46,7 +46,7 @@ func main() {
 	if firmware, err := light.GetFirmwareVersion(); err != nil {
 		slog.Error(fmt.Sprintf("failed to get firmware version from device: %v", err))
 		return
-	} else if _, ok := constant.SupportedFirmwareVersion[firmware]; !config.SkipFirmwareCheck && !ok {
+	} else if _, ok := constant.SupportedFirmwareVersion[light.Name()][firmware]; !config.SkipFirmwareCheck && !ok {
 		slog.Error(fmt.Sprintf("your device has a firmware that is not validated: validated ones include %v", constant.SupportedFirmwareVersion))
 
 		fmt.Println("Do you still want to continue? (y/N) ")

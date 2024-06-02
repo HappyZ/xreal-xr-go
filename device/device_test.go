@@ -17,8 +17,8 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 	}{
 		{
 			command: &device.Packet{
-				PacketType: uint8('a'),
-				CmdId:      uint8('b'),
+				PacketType: device.PKT_TYPE_GET,
+				CommandID:  device.CMD_ID_ACTIVATION_TIME,
 				Payload:    []byte{'c', 'd'},
 				Timestamp:  []byte("18fd37a61db"), // epoch: 1717239964 (seconds) 123 (milliseconds)
 			},

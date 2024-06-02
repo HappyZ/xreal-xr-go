@@ -1,9 +1,7 @@
 package constant
 
-var (
-	SupportedFirmwareVersion = map[string]struct{}{
-		"05.5.08.059_20230518": {}, // XREAL firmware from Nebula APK 3.8.0
-	}
+const (
+	XREAL_LIGHT = "XREAL Light"
 )
 
 // Config holds configuration options for xrealxr
@@ -12,4 +10,8 @@ type Config struct {
 	Debug bool
 	// Do not validate firmware
 	SkipFirmwareCheck bool
+}
+
+var SupportedFirmwareVersion = map[string]map[string]struct{}{
+	XREAL_LIGHT: {"05.5.08.059_20230518": {}},
 }

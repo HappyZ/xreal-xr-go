@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"xreal-light-xr-go/constant"
 	"xreal-light-xr-go/crc"
 
 	hid "github.com/sstallion/go-hid"
@@ -19,9 +20,73 @@ const (
 	retryMaxAttempts  = 5
 )
 
+// CommandID holds reverse engineered command ID info
+type CommandID uint8
+
+const (
+	CMD_ID_DISPLAY_MODE         CommandID = 0x33
+	CMD_ID_FW_VERSION           CommandID = 0x35
+	CMD_ID_DEVICE_SERIAL_NUMBER CommandID = 0x43
+	CMD_ID_AMBIENT_LIGHT_REPORT CommandID = 0x4c
+	CMD_ID_V_SYNC_EVENT         CommandID = 0x4e
+	CMD_ID_MAGNETOMETER_EVENT   CommandID = 0x55
+	CMD_ID_GLASS_IS_ACTIVATED   CommandID = 0x65
+	CMD_ID_ACTIVATION_TIME      CommandID = 0x66
+	CMD_ID_CAM_RGB              CommandID = 0x68
+	CMD_ID_CAM_STEREO           CommandID = 0x69
+)
+
+func (cmd CommandID) String() string {
+	switch cmd {
+	case CMD_ID_FW_VERSION:
+		return "firmware version"
+	case CMD_ID_DEVICE_SERIAL_NUMBER:
+		return "glass serial number"
+	case CMD_ID_AMBIENT_LIGHT_REPORT:
+		return "ambient light reporting enabled"
+	case CMD_ID_V_SYNC_EVENT:
+		return "v-sync event enabled"
+	case CMD_ID_MAGNETOMETER_EVENT:
+		return "magnetometer event enabled"
+	case CMD_ID_GLASS_IS_ACTIVATED:
+		return "whether glass is activated"
+	case CMD_ID_ACTIVATION_TIME:
+		return "glass activation time"
+	case CMD_ID_CAM_RGB:
+		return "RGB camera enabled"
+	case CMD_ID_CAM_STEREO:
+		return "Stereo camera enabled"
+	default:
+		switch uint8(cmd) {
+		case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
+			return "no function"
+		}
+		return "unknown"
+	}
+}
+
+// PacketType holds reverse engineered packet type info
+type PacketType uint8
+
+const (
+	PKT_TYPE_GET PacketType = 0x33
+	PKT_TYPE_SET PacketType = 0x31
+)
+
+func (pkttype PacketType) String() string {
+	switch pkttype {
+	case PKT_TYPE_GET:
+		return "get"
+	case PKT_TYPE_SET:
+		return "set"
+	default:
+		return "unknown"
+	}
+}
+
 type Packet struct {
-	PacketType uint8
-	CmdId      uint8
+	PacketType PacketType
+	CommandID  CommandID
 	Payload    []byte
 	Timestamp  []byte
 	// Only set if is CRC ERROR or unable to deserialize
@@ -98,8 +163,8 @@ func (pkt *Packet) Deserialize(data []byte) error {
 		return fmt.Errorf("input date carries with insufficient information")
 	}
 
-	pkt.PacketType = parts[0][0]
-	pkt.CmdId = parts[1][0]
+	pkt.PacketType = PacketType(parts[0][0])
+	pkt.CommandID = CommandID(parts[1][0])
 	pkt.Payload = parts[2]
 	pkt.Timestamp = parts[len(parts)-2]
 
@@ -114,15 +179,15 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 
 	if pkt.RawMessage != "" {
 		buf.Write([]byte(pkt.RawMessage))
-	} else if (pkt.PacketType == 0) || (pkt.CmdId == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
+	} else if (uint8(pkt.PacketType) == 0) || (uint8(pkt.CommandID) == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
 		return result, fmt.Errorf("this Packet is not initialized?")
 	}
 
 	buf.WriteByte(0x02)
 	buf.WriteByte(':')
-	buf.WriteByte(pkt.PacketType)
+	buf.WriteByte(uint8(pkt.PacketType))
 	buf.WriteByte(':')
-	buf.WriteByte(pkt.CmdId)
+	buf.WriteByte(uint8(pkt.CommandID))
 	buf.WriteByte(':')
 	buf.Write(pkt.Payload)
 	buf.WriteByte(':')
@@ -162,7 +227,7 @@ type xrealLight struct {
 }
 
 func (l *xrealLight) Name() string {
-	return "XREAL LIGHT"
+	return constant.XREAL_LIGHT
 }
 
 func (l *xrealLight) PID() uint16 {
@@ -243,7 +308,7 @@ func (l *xrealLight) initialize() error {
 
 	// Disabled below because it is not necessary to send this if not in SBS mode
 	// Sends an "SDK works" message
-	// command := &Packet{PacketType: '@', CmdId: '3', Payload: []byte{'1'}, Timestamp: getTimestampNow()}
+	// command := &Packet{PacketType: '@', CommandID: CMD_ID_DISPLAY_MODE, Payload: []byte{'1'}, Timestamp: getTimestampNow()}
 	// err := l.executeOnly(command)
 	// if err != nil {
 	// 	return fmt.Errorf("failed to send SDK works message: %w", err)
@@ -253,7 +318,7 @@ func (l *xrealLight) initialize() error {
 }
 
 func (l *xrealLight) sendHeartBeat() error {
-	command := &Packet{PacketType: '@', CmdId: 'K', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: '@', CommandID: 'K', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	err := l.executeOnly(command)
 	if err != nil {
 		return fmt.Errorf("failed to send a heart beat: %w", err)
@@ -321,7 +386,9 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 		}
 
 		for i := 0; i < 128; i++ {
+			l.mutex.Lock()
 			buffer, err := read(l.hidDevice, readDeviceTimeout)
+			l.mutex.Unlock()
 			if err != nil {
 				slog.Debug(fmt.Sprintf("failed to read response: %v", err))
 				break
@@ -334,7 +401,7 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 				break
 			}
 
-			if (response.PacketType == command.PacketType+1) && (response.CmdId == command.CmdId) {
+			if (response.PacketType == command.PacketType+1) && (response.CommandID == command.CommandID) {
 				return response.Payload, nil
 			}
 			// otherwise we received irrelevant data
@@ -351,7 +418,7 @@ func getTimestampNow() []byte {
 }
 
 func (l *xrealLight) GetSerial() (string, error) {
-	command := &Packet{PacketType: '3', CmdId: 'C', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_DEVICE_SERIAL_NUMBER, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return "", fmt.Errorf("failed to get serial: %w", err)
@@ -360,7 +427,7 @@ func (l *xrealLight) GetSerial() (string, error) {
 }
 
 func (l *xrealLight) GetFirmwareVersion() (string, error) {
-	command := &Packet{PacketType: '3', CmdId: '5', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_FW_VERSION, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return "", fmt.Errorf("failed to get firmware version: %w", err)
@@ -369,7 +436,7 @@ func (l *xrealLight) GetFirmwareVersion() (string, error) {
 }
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
-	command := &Packet{PacketType: '3', CmdId: '3', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_DISPLAY_MODE, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to get display mode: %w", err)
@@ -404,7 +471,7 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 		return fmt.Errorf("unknown display mode: %v", mode)
 	}
 
-	command := &Packet{PacketType: '1', CmdId: '3', Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: PKT_TYPE_SET, CommandID: CMD_ID_DISPLAY_MODE, Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return fmt.Errorf("failed to set display mode: %w", err)
@@ -416,47 +483,22 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 }
 
 func (l *xrealLight) PrintExhaustiveCommandTable() error {
-	slog.Info("")
+	slog.Info("=======================")
 	slog.Info("PacketType : CommandId : Payload : Purpose : Output")
-	slog.Info("---")
+	slog.Info("=======================")
 	// we loop through ASCII char that doesn't have special meanings
-	for i := uint8(0x20); i < 0x7F; i++ {
-		command := &Packet{PacketType: '3', CmdId: i, Payload: []byte{' '}, Timestamp: getTimestampNow()}
+	for i := uint8(0x20); i < 0x7f; i++ {
+		commandID := CommandID(i)
+		command := &Packet{PacketType: PKT_TYPE_GET, CommandID: commandID, Payload: []byte{' '}, Timestamp: getTimestampNow()}
 		response, err := l.executeAndRead(command)
 
-		// not sure the purpose is related to firmware version, below is checked on FW 05.5.08.059_20230518
-		var purpose string
-		switch i {
-		case 0x35: // '5'
-			purpose = "firmware version"
-		case 0x43: // 'C'
-			purpose = "device serial number"
-		case 0x4c: // 'L'
-			purpose = "ambient light reporting enabled"
-		case 0x4e: // 'N'
-			purpose = "v-sync event enabled"
-		case 0x55: // 'U'
-			purpose = "magnetometer enabled"
-		case 0x65: // 'e'
-			purpose = "whether activated"
-		case 0x66: // 'f'
-			purpose = "activation time"
-		case 0x68: // 'h'
-			purpose = "RGB camera enabled"
-		case 0x69: // 'i'
-			purpose = "Stereo camera enabled"
-		case 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
-			purpose = "not exist"
-		default:
-			purpose = "unknown"
-		}
 		if err != nil {
-			slog.Error(fmt.Sprintf("('3' : '0x%x (%c)' : ' ' : %s : '%s') failed: %v", i, i, purpose, string(response), err))
+			slog.Error(fmt.Sprintf("('%s' : '0x%x (%c)' : ' ' : %s : '%s') failed: %v", command.PacketType.String(), i, i, commandID.String(), string(response), err))
 			continue
 		}
-		slog.Info(fmt.Sprintf("'3' : '0x%x (%c)' : ' ' : %s : '%s'", i, i, purpose, string(response)))
+		slog.Info(fmt.Sprintf("'%s' : '0x%x (%c)' : ' ' : %s : '%s'", command.PacketType.String(), i, i, commandID.String(), string(response)))
 	}
-	slog.Info("")
+	slog.Info("=======================")
 	return nil
 }
 
