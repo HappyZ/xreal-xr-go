@@ -49,12 +49,7 @@ func main() {
 	} else if _, ok := constant.SupportedFirmwareVersion[light.Name()][firmware]; !config.SkipFirmwareCheck && !ok {
 		slog.Error(fmt.Sprintf("your device has a firmware that is not validated: validated ones include %v", constant.SupportedFirmwareVersion))
 
-		fmt.Println("Do you still want to continue? (y/N) ")
-
-		var input string
-		fmt.Scanln(&input)
-
-		if input != "y" && input != "Y" && input != "Yes" && input != "YES" {
+		if !confirmToContinue() {
 			return
 		}
 	}
@@ -163,6 +158,34 @@ func handleSetCommand(d device.Device, input string) {
 	}
 }
 
+func confirmToContinue() bool {
+	line := liner.NewLiner()
+	defer line.Close()
+
+	line.SetCtrlCAborts(true)
+
+	input, err := line.Prompt("Please confirm if you want to continue? (y/N) ")
+	if err != nil {
+		if err == liner.ErrPromptAborted {
+			slog.Warn("aborted, taking it as a NO")
+			return false
+		}
+		if err.Error() == "EOF" && input == "" {
+			slog.Warn("EOF, taking it as a NO")
+			return false
+		}
+		slog.Error(fmt.Sprintf("error reading input: %v", err))
+		return false
+	}
+
+	input = strings.TrimSpace(input)
+
+	if input != "y" && input != "Y" && input != "Yes" && input != "YES" {
+		return false
+	}
+	return true
+}
+
 func handleDevTestCommand(d device.Device, input string) {
 	parts := strings.Split(input, " ")
 	if len(parts) < 2 {
@@ -173,9 +196,21 @@ func handleDevTestCommand(d device.Device, input string) {
 	command := parts[1]
 
 	switch command {
-	case "cmdtable":
-		d.PrintExhaustiveCommandTable()
+	case "cmdid":
+		d.PrintCommandIDTable()
+	case "get":
+		d.DevExecuteAndRead(parts[1:])
+	case "set":
+		if confirmToContinue() {
+			d.DevExecuteAndRead(parts[1:])
+		}
 	default:
+		if len(command) == 1 {
+			if confirmToContinue() {
+				d.DevExecuteAndRead(parts[1:])
+			}
+			return
+		}
 		slog.Error("unknown command")
 	}
 }

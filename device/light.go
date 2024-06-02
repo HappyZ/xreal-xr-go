@@ -24,6 +24,7 @@ const (
 type CommandID uint8
 
 const (
+	CMD_ID_BRIGHTNESS_LEVEL     CommandID = 0x31
 	CMD_ID_DISPLAY_MODE         CommandID = 0x33
 	CMD_ID_FW_VERSION           CommandID = 0x35
 	CMD_ID_DEVICE_SERIAL_NUMBER CommandID = 0x43
@@ -38,6 +39,10 @@ const (
 
 func (cmd CommandID) String() string {
 	switch cmd {
+	case CMD_ID_BRIGHTNESS_LEVEL:
+		return "brightness level"
+	case CMD_ID_DISPLAY_MODE:
+		return "display mode"
 	case CMD_ID_FW_VERSION:
 		return "firmware version"
 	case CMD_ID_DEVICE_SERIAL_NUMBER:
@@ -58,7 +63,7 @@ func (cmd CommandID) String() string {
 		return "Stereo camera enabled"
 	default:
 		switch uint8(cmd) {
-		case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
+		case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
 			return "no function"
 		}
 		return "unknown"
@@ -337,7 +342,7 @@ func (l *xrealLight) sendPeriodicHeartBeat() {
 		case <-ticker.C:
 			err := l.sendHeartBeat()
 			if err != nil {
-				slog.Warn(fmt.Sprintf("failed to send a heartbeat: %v", err))
+				slog.Debug(fmt.Sprintf("failed to send a heartbeat: %v", err))
 			}
 		case <-l.stopHeartBeatChannel:
 			return
@@ -482,13 +487,17 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	return nil
 }
 
-func (l *xrealLight) PrintExhaustiveCommandTable() error {
+func (l *xrealLight) PrintCommandIDTable() {
 	slog.Info("=======================")
 	slog.Info("PacketType : CommandId : Payload : Purpose : Output")
 	slog.Info("=======================")
 	// we loop through ASCII char that doesn't have special meanings
 	for i := uint8(0x20); i < 0x7f; i++ {
 		commandID := CommandID(i)
+		// skip
+		if commandID.String() == "no function" {
+			continue
+		}
 		command := &Packet{PacketType: PKT_TYPE_GET, CommandID: commandID, Payload: []byte{' '}, Timestamp: getTimestampNow()}
 		response, err := l.executeAndRead(command)
 
@@ -499,7 +508,42 @@ func (l *xrealLight) PrintExhaustiveCommandTable() error {
 		slog.Info(fmt.Sprintf("'%s' : '0x%x (%c)' : ' ' : %s : '%s'", command.PacketType.String(), i, i, commandID.String(), string(response)))
 	}
 	slog.Info("=======================")
-	return nil
+}
+
+func (l *xrealLight) DevExecuteAndRead(input []string) {
+	if len(input) != 3 {
+		slog.Error(fmt.Sprintf("wrong input format: want [PacketType CommandID Payload] got %v", input))
+		return
+	}
+
+	if len(input[1]) != 1 {
+		slog.Error(fmt.Sprintf("wrong CommandID format: want ASCII char, got %s", input[1]))
+		return
+	}
+
+	command := &Packet{CommandID: CommandID(input[1][0]), Payload: []byte(input[2]), Timestamp: getTimestampNow()}
+
+	switch input[0] {
+	case "get":
+		command.PacketType = PKT_TYPE_GET
+	case "set":
+		command.PacketType = PKT_TYPE_SET
+	default:
+		if len(input[0]) == 1 {
+			command.PacketType = PacketType(input[0][0])
+		} else {
+			slog.Error(fmt.Sprintf("unsupported PacketType %s", input[0]))
+			return
+		}
+	}
+
+	response, err := l.executeAndRead(command)
+
+	if err != nil {
+		slog.Error(fmt.Sprintf("%v : '%s' failed: %v", command, string(response), err))
+		return
+	}
+	slog.Info(fmt.Sprintf("%v : '%s'", command, string(response)))
 }
 
 func NewXREALLight(devicePath *string, serialNumber *string) Device {

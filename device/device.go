@@ -20,7 +20,8 @@ type Device interface {
 	SetDisplayMode(mode DisplayMode) error
 
 	// For development testing only
-	PrintExhaustiveCommandTable() error
+	PrintCommandIDTable()
+	DevExecuteAndRead(intput []string)
 }
 
 // DisplayMode represents the display mode of AR glasses.
