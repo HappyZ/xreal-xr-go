@@ -16,6 +16,9 @@ type Device interface {
 	GetSerial() (string, error)
 	GetFirmwareVersion() (string, error)
 
+	GetBrightnessLevel() (string, error)
+	SetBrightnessLevel(level string) error
+
 	GetDisplayMode() (DisplayMode, error)
 	SetDisplayMode(mode DisplayMode) error
 

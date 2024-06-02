@@ -122,6 +122,13 @@ func handleGetCommand(d device.Device, input string) {
 			return
 		}
 		slog.Info(fmt.Sprintf("Display Mode: %s", mode))
+	case "brightness":
+		brightness, err := d.GetBrightnessLevel()
+		if err != nil {
+			slog.Error(fmt.Sprintf("failed to get brightness level: %v", err))
+			return
+		}
+		slog.Info(fmt.Sprintf("Brightness Level: %s", brightness))
 	default:
 		slog.Error("unknown command")
 	}
@@ -150,6 +157,17 @@ func handleSetCommand(d device.Device, input string) {
 		err := d.SetDisplayMode(device.DisplayMode(args[0]))
 		if err != nil {
 			slog.Error(fmt.Sprintf("failed to set display mode: %v", err))
+			return
+		}
+		slog.Info("Display mode set successfully")
+	case "brightness":
+		if len(args) == 0 {
+			slog.Error("empty brightness level input, please specify a number")
+			return
+		}
+		err := d.SetBrightnessLevel(args[0])
+		if err != nil {
+			slog.Error(fmt.Sprintf("failed to set brightness level: %v", err))
 			return
 		}
 		slog.Info("Display mode set successfully")

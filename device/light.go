@@ -24,17 +24,19 @@ const (
 type CommandID uint8
 
 const (
-	CMD_ID_BRIGHTNESS_LEVEL     CommandID = 0x31
-	CMD_ID_DISPLAY_MODE         CommandID = 0x33
-	CMD_ID_FW_VERSION           CommandID = 0x35
-	CMD_ID_DEVICE_SERIAL_NUMBER CommandID = 0x43
-	CMD_ID_AMBIENT_LIGHT_REPORT CommandID = 0x4c
-	CMD_ID_V_SYNC_EVENT         CommandID = 0x4e
-	CMD_ID_MAGNETOMETER_EVENT   CommandID = 0x55
-	CMD_ID_GLASS_IS_ACTIVATED   CommandID = 0x65
-	CMD_ID_ACTIVATION_TIME      CommandID = 0x66
-	CMD_ID_CAM_RGB              CommandID = 0x68
-	CMD_ID_CAM_STEREO           CommandID = 0x69
+	CMD_ID_BRIGHTNESS_LEVEL        CommandID = 0x31
+	CMD_ID_DISPLAY_MODE            CommandID = 0x33
+	CMD_ID_FW_VERSION              CommandID = 0x35
+	CMD_ID_DEVICE_SERIAL_NUMBER    CommandID = 0x43
+	CMD_ID_EEPROM_VALUE_READ       CommandID = 0x4b
+	CMD_ID_AMBIENT_LIGHT_REPORT    CommandID = 0x4c
+	CMD_ID_V_SYNC_EVENT            CommandID = 0x4e
+	CMD_ID_MAGNETOMETER_EVENT      CommandID = 0x55
+	CMD_ID_GLASS_IS_ACTIVATED      CommandID = 0x65
+	CMD_ID_ACTIVATION_TIME         CommandID = 0x66
+	CMD_ID_CAM_RGB                 CommandID = 0x68
+	CMD_ID_CAM_STEREO              CommandID = 0x69
+	CMD_ID_TOTAL_BRIGHTNESS_LEVELS CommandID = 0x7a
 )
 
 func (cmd CommandID) String() string {
@@ -47,6 +49,8 @@ func (cmd CommandID) String() string {
 		return "firmware version"
 	case CMD_ID_DEVICE_SERIAL_NUMBER:
 		return "glass serial number"
+	case CMD_ID_EEPROM_VALUE_READ:
+		return "eeprom address value reader"
 	case CMD_ID_AMBIENT_LIGHT_REPORT:
 		return "ambient light reporting enabled"
 	case CMD_ID_V_SYNC_EVENT:
@@ -61,6 +65,8 @@ func (cmd CommandID) String() string {
 		return "RGB camera enabled"
 	case CMD_ID_CAM_STEREO:
 		return "Stereo camera enabled"
+	case CMD_ID_TOTAL_BRIGHTNESS_LEVELS:
+		return "total number of brightness levels"
 	default:
 		switch uint8(cmd) {
 		case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
@@ -446,6 +452,7 @@ func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
 	if err != nil {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to get display mode: %w", err)
 	}
+	slog.Debug(fmt.Sprintf("%v responds %s", command, string(response)))
 	if response[0] == '1' {
 		// "1&2D_1080"
 		return DISPLAY_MODE_SAME_ON_BOTH, nil
@@ -481,8 +488,39 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	if err != nil {
 		return fmt.Errorf("failed to set display mode: %w", err)
 	}
+	slog.Debug(fmt.Sprintf("%v responds %s", command, string(response)))
 	if response[0] != displayMode {
 		return fmt.Errorf("failed to set display mode: want %d got %d", displayMode, response[0])
+	}
+	return nil
+}
+
+func (l *xrealLight) GetBrightnessLevel() (string, error) {
+	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_BRIGHTNESS_LEVEL, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	if response, err := l.executeAndRead(command); err != nil {
+		return "unknown", fmt.Errorf("failed to get brightness level: %w", err)
+	} else if response[0] == '0' {
+		return "dimmest", nil
+	} else if response[0] == '7' { // CMD_ID_TOTAL_BRIGHTNESS_LEVELS tells there are 8
+		return "brightest", nil
+	} else {
+		return string(response), nil
+	}
+}
+
+func (l *xrealLight) SetBrightnessLevel(level string) error {
+	if (len(level) != 1) || (level[0] < '0') || (level[0] > '7') {
+		return fmt.Errorf("invalid level %s, must be 0-7", level)
+	}
+
+	command := &Packet{PacketType: PKT_TYPE_SET, CommandID: CMD_ID_BRIGHTNESS_LEVEL, Payload: []byte(level), Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(command)
+	if err != nil {
+		return fmt.Errorf("failed to set brightness level: %w", err)
+	}
+	slog.Debug(fmt.Sprintf("%v responds %s", command, string(response)))
+	if response[0] != level[0] {
+		return fmt.Errorf("failed to set brightness mode: want %d got %d", level[0], response[0])
 	}
 	return nil
 }
