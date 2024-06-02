@@ -146,6 +146,7 @@ func handleSetCommand(d device.Device, input string) {
 	case "displaymode":
 		if len(args) == 0 {
 			slog.Error(fmt.Sprintf("empty display mode input, please specify one of (%v)", device.SupportedDisplayMode))
+			return
 		}
 		if _, ok := device.SupportedDisplayMode[args[0]]; !ok {
 			slog.Error(fmt.Sprintf("invalid display mode: got (%s) want one of (%v)", args[0], device.SupportedDisplayMode))
