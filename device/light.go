@@ -410,7 +410,7 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 			slog.Debug(fmt.Sprintf("got unhandled response %s", response.String()))
 		}
 	}
-	return nil, nil
+	return nil, fmt.Errorf("failed to get a relevant response")
 }
 
 func getTimestampNow() []byte {
