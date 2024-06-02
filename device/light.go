@@ -58,7 +58,7 @@ func (cmd CommandID) String() string {
 	case CMD_ID_DEVICE_SERIAL_NUMBER:
 		return "glass serial number (get)"
 	case CMD_ID_EEPROM_VALUE_READ:
-		return "eeprom address value reader (get)"
+		return "eeprom address value reader (get/at)"
 	case CMD_ID_AMBIENT_LIGHT_REPORT:
 		return "ambient light reporting enabled (get/set)"
 	case CMD_ID_V_SYNC_EVENT:
@@ -340,7 +340,7 @@ func (l *xrealLight) initialize() error {
 }
 
 func (l *xrealLight) sendHeartBeat() error {
-	command := &Packet{PacketType: '@', CommandID: 'K', Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: PKT_TYPE_AT, CommandID: CMD_ID_EEPROM_VALUE_READ, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	err := l.executeOnly(command)
 	if err != nil {
 		return fmt.Errorf("failed to send a heart beat: %w", err)
