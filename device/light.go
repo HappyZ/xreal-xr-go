@@ -495,9 +495,9 @@ func (l *xrealLight) PrintCommandIDTable() {
 	for i := uint8(0x20); i < 0x7f; i++ {
 		commandID := CommandID(i)
 		// skip
-		if commandID.String() == "no function" {
-			continue
-		}
+		// if commandID.String() == "no function" {
+		// 	continue
+		// }
 		command := &Packet{PacketType: PKT_TYPE_GET, CommandID: commandID, Payload: []byte{' '}, Timestamp: getTimestampNow()}
 		response, err := l.executeAndRead(command)
 
