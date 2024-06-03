@@ -52,19 +52,19 @@ func (cmd CommandID) String() string {
 	case CMD_ID_FW_VERSION:
 		return "firmware version (get)"
 	case CMD_ID_MCU_B_JUMP_TO_A:
-		return "MCU block B jump to block A (at)"
+		return "MCU block B jump to block A (sys)"
 	case CMD_ID_UPDATE_MCU_A_FW_START:
-		return "MCU block A firmware update start (at)"
+		return "MCU block A firmware update start (sys)"
 	case CMD_ID_DEVICE_SERIAL_NUMBER:
 		return "glass serial number (get)"
 	case CMD_ID_EEPROM_VALUE_READ:
-		return "eeprom address value reader (get/at)"
+		return "eeprom address value reader (get/sys)"
 	case CMD_ID_AMBIENT_LIGHT_REPORT:
 		return "ambient light reporting enabled (get/set)"
 	case CMD_ID_V_SYNC_EVENT:
 		return "v-sync event enabled (get/set)"
 	case CMD_ID_MCU_A_JUMP_TO_B:
-		return "MCU block A jump to block B (at)"
+		return "MCU block A jump to block B (sys)"
 	case CMD_ID_MAGNETOMETER_EVENT:
 		return "magnetometer event enabled (get/set)"
 	case CMD_ID_GLASS_IS_ACTIVATED:
@@ -92,7 +92,7 @@ type PacketType uint8
 const (
 	PKT_TYPE_SET PacketType = 0x31
 	PKT_TYPE_GET PacketType = 0x33
-	PKT_TYPE_AT  PacketType = 0x40
+	PKT_TYPE_SYS PacketType = 0x40
 )
 
 func (pkttype PacketType) String() string {
@@ -141,22 +141,6 @@ func (pkt *Packet) String() string {
 func (pkt *Packet) Deserialize(data []byte) error {
 	if data[0] == 'C' {
 		// This is a CRC Error packet, e.g. "CAL CRC ERROR:20000614:200152e8"
-
-		// endIdx := len(data) - 1
-		// for i, b := range data {
-		// 	if b == 0 {
-		// 		break
-		// 	}
-		// 	endIdx = i
-		// }
-
-		// data = data[:endIdx-1]
-
-		// parts := bytes.Split(data, []byte{':'})
-		// if len(parts) < 3 {
-		// 	return fmt.Errorf("input date carries with insufficient information")
-		// }
-
 		pkt.RawMessage = string(data)
 		return nil
 	}
@@ -340,7 +324,7 @@ func (l *xrealLight) initialize() error {
 }
 
 func (l *xrealLight) sendHeartBeat() error {
-	command := &Packet{PacketType: PKT_TYPE_AT, CommandID: CMD_ID_EEPROM_VALUE_READ, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{PacketType: PKT_TYPE_SYS, CommandID: CMD_ID_EEPROM_VALUE_READ, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
 	err := l.executeOnly(command)
 	if err != nil {
 		return fmt.Errorf("failed to send a heart beat: %w", err)
@@ -402,6 +386,8 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 }
 
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
+	var unhandledPacketCount uint32
+
 	for retry := 0; retry < retryMaxAttempts; retry++ {
 		if err := l.executeOnly(command); err != nil {
 			return nil, err
@@ -428,8 +414,8 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 			}
 			// otherwise we received irrelevant data
 			// TODO(happyz): Handles irrelevant data
-
-			slog.Debug(fmt.Sprintf("got unhandled response %s", response.String()))
+			unhandledPacketCount++
+			slog.Debug(fmt.Sprintf("%d: got unhandled response %s", unhandledPacketCount, response.String()))
 		}
 	}
 	return nil, fmt.Errorf("failed to get a relevant response")
