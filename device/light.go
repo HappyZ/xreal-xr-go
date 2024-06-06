@@ -20,100 +20,196 @@ const (
 	retryMaxAttempts  = 5
 )
 
-// CommandID holds reverse engineered command ID info
-type CommandID uint8
+type Command struct {
+	Type uint8
+	ID   uint8
+}
 
-const (
-	CMD_ID_BRIGHTNESS_LEVEL        CommandID = 0x31
-	CMD_ID_DISPLAY_MODE            CommandID = 0x33
-	CMD_ID_FW_VERSION              CommandID = 0x35
-	CMD_ID_MCU_B_JUMP_TO_A         CommandID = 0x38
-	CMD_ID_UPDATE_MCU_A_FW_START   CommandID = 0x39
-	CMD_ID_DEVICE_SERIAL_NUMBER    CommandID = 0x43
-	CMD_ID_EEPROM_VALUE_READ       CommandID = 0x4b
-	CMD_ID_AMBIENT_LIGHT_REPORT    CommandID = 0x4c
-	CMD_ID_V_SYNC_EVENT            CommandID = 0x4e
-	CMD_ID_MCU_A_JUMP_TO_B         CommandID = 0x52
-	CMD_ID_MAGNETOMETER_EVENT      CommandID = 0x55
-	CMD_ID_UPDATE_DP               CommandID = 0x58
-	CMD_ID_GLASS_IS_ACTIVATED      CommandID = 0x65
-	CMD_ID_ACTIVATION_TIME         CommandID = 0x66
-	CMD_ID_CAM_RGB                 CommandID = 0x68
-	CMD_ID_CAM_STEREO              CommandID = 0x69
-	CMD_ID_TOTAL_BRIGHTNESS_LEVELS CommandID = 0x7a
-)
-
-func (cmd CommandID) String() string {
+func (cmd Command) String() string {
 	switch cmd {
-	case CMD_ID_BRIGHTNESS_LEVEL:
-		return "brightness level (get/set)"
-	case CMD_ID_DISPLAY_MODE:
-		return "display mode (get/set)"
-	case CMD_ID_FW_VERSION:
-		return "firmware version (get)"
-	case CMD_ID_MCU_B_JUMP_TO_A:
-		return "MCU block B jump to block A (sys)"
-	case CMD_ID_UPDATE_MCU_A_FW_START:
-		return "MCU block A firmware update start (sys)"
-	case CMD_ID_DEVICE_SERIAL_NUMBER:
-		return "glass serial number (get)"
-	case CMD_ID_EEPROM_VALUE_READ:
-		return "eeprom address value reader (get/sys)"
-	case CMD_ID_AMBIENT_LIGHT_REPORT:
-		return "ambient light reporting enabled (get/set)"
-	case CMD_ID_V_SYNC_EVENT:
-		return "v-sync event enabled (get/set)"
-	case CMD_ID_MCU_A_JUMP_TO_B:
-		return "MCU block A jump to block B (sys)"
-	case CMD_ID_MAGNETOMETER_EVENT:
-		return "magnetometer event enabled (get/set)"
-	case CMD_ID_GLASS_IS_ACTIVATED:
-		return "whether glass is activated (get)"
-	case CMD_ID_ACTIVATION_TIME:
-		return "glass activation time (get)"
-	case CMD_ID_CAM_RGB:
-		return "RGB camera enabled (get/set)"
-	case CMD_ID_CAM_STEREO:
-		return "Stereo camera enabled (get/set)"
-	case CMD_ID_TOTAL_BRIGHTNESS_LEVELS:
-		return "total number of brightness levels (get)"
+	case CMD_GET_STOCK_FIRMWARE_VERSION:
+		return "get stock firmware version"
+	case CMD_SET_BRIGHTNESS_LEVEL_0, CMD_SET_BRIGHTNESS_LEVEL_1:
+		return "set brightness level"
+	case CMD_GET_BRIGHTNESS_LEVEL:
+		return "get brightness level"
+	case CMD_SET_MAX_BRIGHTNESS_LEVEL:
+		return "set max brightness level"
+	case CMD_SET_DISPLAY_MODE:
+		return "set display mode"
+	case CMD_GET_DISPLAY_MODE:
+		return "get display mode"
+	case CMD_GET_DISPLAY_FIRMWARE:
+		return "get display firmware version"
+	case CMD_GET_FIRMWARE_VERSION_0, CMD_GET_FIRMWARE_VERSION_1:
+		return "get firmware version"
+	case CMD_GET_SERIAL_NUMBER:
+		return "get glass serial number"
+	case CMD_HEART_BEAT:
+		return "send heart beat"
+	case CMD_ENABLE_AMBIENT_LIGHT:
+		return "enable ambient light reporting"
+	case CMD_GET_AMBIENT_LIGHT_ENABLED:
+		return "get if ambient light reporting enabled"
+	case CMD_ENABLE_VSYNC:
+		return "eanble v-sync reporting"
+	case CMD_GET_ENABLE_VSYNC_ENABLED:
+		return "get if v-sync reporting enabled"
+	case CMD_ENABLE_MAGNETOMETER:
+		return "enable geo magnetometer reporting"
+	case CMD_GET_MAGNETOMETER_ENABLED:
+		return "get if geo magnetometer reporting enabled"
+	case CMD_UPDATE_DISPLAY_FW_UPDATE:
+		return "update display to firmware update"
+	case CMD_ENABLE_TEMPERATURE:
+		return "enable temperature reporting"
+	case CMD_GET_TEMPERATURE_ENABLED:
+		return "get if temperature reporting enabled"
+	case CMD_SET_OLED_BRIGHTNESS_LEVEL:
+		return "set OLED brightness level" // not on light
+	case CMD_GET_OLED_BRIGHTNESS_LEVEL:
+		return "get OLED brightness level" // not on light
+	case CMD_SET_ACTIVATION:
+		return "set glass activation"
+	case CMD_GET_ACTIVATION:
+		return "get if glass activated"
+	case CMD_SET_ACTIVATION_TIME:
+		return "set glass activation time (epoch, sec)"
+	case CMD_GET_ACTIVATION_TIME:
+		return "get glass activation time (epoch, sec)"
+	case CMD_ENABLE_RGB_CAMERA:
+		return "enable RGB camera"
+	case CMD_GET_RGB_CAMERA_ENABLED:
+		return "get if RGB camera enabled"
+	case CMD_ENABLE_STEREO_CAMERA:
+		return "enable stereo camera"
+	case CMD_GET_STEREO_CAMERA_ENABLED:
+		return "get if stereo camera enabled"
+	case CMD_GET_EEPROM_ADDR_VALUE:
+		return "get EEPROM value at given address"
+	case CMD_GET_NREAL_FW_STRING:
+		return "always returns hardcoded string `NrealFW`"
+	case CMD_GET_MCU_SERIES:
+		return "always returns hardcoded string `STM32F413MGY6`"
+	case CMD_GET_MCU_RAM_SIZE:
+		return "always returns hardcoded string `RAM_320Kbytes`"
+	case CMD_GET_MCU_ROM_SIZE:
+		return "always returns hardcoded string `ROM_1.5Mbytes`"
+	case CMD_SET_SDK_WORKS:
+		return "set or unset SDK works"
+	case CMD_GLASS_SLEEP:
+		return "force glass to sleep (disconnect)"
 	default:
-		switch uint8(cmd) {
-		case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x32, 0x38, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x4f, 0x54, 0x57, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x63, 0x67, 0x6a, 0x6b, 0x77, 0x7b, 0x7c, 0x7d, 0x7e:
-			return "no function"
-		}
-		return "unknown"
+		return "unknown / no function"
 	}
 }
 
-// PacketType holds reverse engineered packet type info
-type PacketType uint8
-
-const (
-	PKT_TYPE_SET PacketType = 0x31
-	PKT_TYPE_GET PacketType = 0x33
-	PKT_TYPE_SYS PacketType = 0x40
+var (
+	// FIRMWARE_05_1_08_021 only
+	// CMD_SET_MAX_BRIGHTNESS_LEVEL     = Command{Type: 0x33, ID: 0x32} // shouldn't do anything, static, does not take any input
+	// CMD_GET_DISPLAY_HDCP             = Command{Type: 0x33, ID: 0x34} // hardcoded "ELLA2_1224_HDCP"
+	// FIRMWARE_05_1_08_021 and above
+	CMD_GET_STOCK_FIRMWARE_VERSION   = Command{Type: 0x33, ID: 0x30}
+	CMD_SET_BRIGHTNESS_LEVEL_0       = Command{Type: 0x31, ID: 0x31}
+	CMD_GET_BRIGHTNESS_LEVEL         = Command{Type: 0x33, ID: 0x31}
+	CMD_SET_DISPLAY_MODE             = Command{Type: 0x31, ID: 0x33}
+	CMD_GET_DISPLAY_MODE             = Command{Type: 0x33, ID: 0x33}
+	CMD_GET_DISPLAY_MODE_STRING      = Command{Type: 0x33, ID: 0x64} // not very useful given CMD_GET_DISPLAY_MODE
+	CMD_GET_FIRMWARE_VERSION_0       = Command{Type: 0x33, ID: 0x35}
+	CMD_GET_FIRMWARE_VERSION_1       = Command{Type: 0x33, ID: 0x61} // same as CMD_GET_FIRMWARE_VERSION_0
+	CMD_SET_POWER                    = Command{Type: 0x31, ID: 0x39} // unknown purpose, input '0'/'1'
+	CMD_GET_POWER                    = Command{Type: 0x33, ID: 0x39} // unknown purpose, default to '0'
+	CMD_CLEAR_EEPROM_VALUE           = Command{Type: 0x31, ID: 0x41} // untested, input 4 byte eeprom address, set to 0xff
+	CMD_GET_SERIAL_NUMBER            = Command{Type: 0x33, ID: 0x43}
+	CMD_SET_APPROACH_PS_VALUE        = Command{Type: 0x31, ID: 0x44} // unknown purpose, input integer string
+	CMD_GET_APPROACH_PS_VALUE        = Command{Type: 0x33, ID: 0x44} // unknown purpose, mine by default is 130
+	CMD_SET_DISTANCE_PS_VALUE        = Command{Type: 0x31, ID: 0x45} // unknown purpose, input integer string
+	CMD_GET_DISTANCE_PS_VALUE        = Command{Type: 0x33, ID: 0x45} // unknown purpose, mine by default is 110
+	CMD_GET_DISPLAY_VERSION          = Command{Type: 0x33, ID: 0x46} // unknown purpose, mine by default is ELLA2_07.20
+	CMD_GET_DISPLAY_DEBUG_DATA       = Command{Type: 0x33, ID: 0x6b} // unknown purpose
+	CMD_SET_EEPROM_0X27_SOMETHING    = Command{Type: 0x31, ID: 0x47} // untested
+	CMD_GET_EEPROM_0X27_SOMETHING    = Command{Type: 0x33, ID: 0x47} // untested
+	CMD_GET_EEPROM_0X43_SOMETHING    = Command{Type: 0x33, ID: 0x48} // untested
+	CMD_SET_EEPROM_0X43_SOMETHING    = Command{Type: 0x40, ID: 0x41} // untested
+	CMD_SET_EEPROM_0X95_SOMETHING    = Command{Type: 0x31, ID: 0x50} // untested
+	CMD_REBOOT_GLASS                 = Command{Type: 0x31, ID: 0x52}
+	CMD_SET_EEPROM_0X110_SOMETHING   = Command{Type: 0x40, ID: 0x53} // untested
+	CMD_GET_EEPROM_ADDR_VALUE        = Command{Type: 0x33, ID: 0x4b}
+	CMD_GET_ORBIT_FUNC               = Command{Type: 0x33, ID: 0x37} // unknown purpose
+	CMD_SET_ORBIT_FUNC               = Command{Type: 0x40, ID: 0x34} // input 0x0b (open) or others (close)
+	CMD_SET_OLED_LEFT_HORIZONTAL     = Command{Type: 0x31, ID: 0x48} // unknown purpose, input is integer 0-255
+	CMD_SET_OLED_LEFT_VERTICAL       = Command{Type: 0x31, ID: 0x49} // unknown purpose, input is integer 0-255
+	CMD_SET_OLED_RIGHT_HORIZONTAL    = Command{Type: 0x31, ID: 0x4a} // unknown purpose, input is integer 0-255
+	CMD_SET_OLED_RIGHT_VERTICAL      = Command{Type: 0x31, ID: 0x4b} // unknown purpose, input is integer 0-255
+	CMD_GET_OLED_LRHV_VALUE          = Command{Type: 0x33, ID: 0x4a} // unknown purpose, LH-LV-RH-RV values set above, mine default with 'L05L06R27R26'
+	CMD_ENABLE_AMBIENT_LIGHT         = Command{Type: 0x31, ID: 0x4c}
+	CMD_GET_AMBIENT_LIGHT_ENABLED    = Command{Type: 0x33, ID: 0x4c}
+	CMD_SET_DUTY                     = Command{Type: 0x31, ID: 0x4d} // affect display brightness, input is integer 0-100
+	CMD_GET_DUTY                     = Command{Type: 0x33, ID: 0x4d}
+	CMD_ENABLE_VSYNC                 = Command{Type: 0x31, ID: 0x4e} // input '0'/'1'
+	CMD_GET_ENABLE_VSYNC_ENABLED     = Command{Type: 0x33, ID: 0x4e} // mine default with 1
+	RESP_VSYNC                       = Command{Type: 0x35, ID: 0x53}
+	CMD_SET_SLEEP_TIME               = Command{Type: 0x31, ID: 0x51} // input is integer that's larger than 20
+	CMD_GET_SLEEP_TIME               = Command{Type: 0x33, ID: 0x51} // mine by default is 60
+	CMD_GET_GLASS_START_UP_NUM       = Command{Type: 0x33, ID: 0x52} // unknown purpose
+	CMD_GET_GLASS_ERROR_NUM          = Command{Type: 0x54, ID: 0x46} // unknown purpose
+	CMD_GLASS_SLEEP                  = Command{Type: 0x54, ID: 0x47}
+	CMD_GET_SOME_VALUE               = Command{Type: 0x33, ID: 0x53} // unknown purpose, output a digit
+	CMD_RESET_OV580                  = Command{Type: 0x31, ID: 0x54} // untested
+	CMD_ENABLE_MAGNETOMETER          = Command{Type: 0x31, ID: 0x55} // input '0'/'1'
+	CMD_GET_MAGNETOMETER_ENABLED     = Command{Type: 0x33, ID: 0x55}
+	CMD_READ_MAGNETOMETER            = Command{Type: 0x54, ID: 0x45} // untested
+	RESP_MAGNETOMETER                = Command{Type: 0x35, ID: 0x4d}
+	CMD_GET_NREAL_FW_STRING          = Command{Type: 0x33, ID: 0x56} // hardcoded string `NrealFW`
+	CMD_GET_MCU_SERIES               = Command{Type: 0x33, ID: 0x58} // hardcoded string `STM32F413MGY6`
+	CMD_GET_MCU_ROM_SIZE             = Command{Type: 0x33, ID: 0x59} // hardcoded string `ROM_1.5Mbytes`
+	CMD_GET_MCU_RAM_SIZE             = Command{Type: 0x33, ID: 0x5a} // hardcoded string `RAM_320Kbytes`
+	CMD_UPDATE_DISPLAY_FW_UPDATE     = Command{Type: 0x31, ID: 0x58} // dont do this to light, it bricks my dev glasses
+	CMD_SET_BRIGHTNESS_LEVEL_1       = Command{Type: 0x31, ID: 0x59} // caution: upon testing it doesn't do what's expected in newer firmware, see https://github.com/badicsalex/ar-drivers-rs/issues/14#issuecomment-2148616976
+	CMD_ENABLE_TEMPERATURE           = Command{Type: 0x31, ID: 0x60} // untested, input '0'/'1'
+	CMD_GET_TEMPERATURE_ENABLED      = Command{Type: 0x33, ID: 0x60} // untested, guessed
+	CMD_SET_OLED_BRIGHTNESS_LEVEL    = Command{Type: 0x31, ID: 0x62} // untested, input '0'/'1'
+	CMD_GET_OLED_BRIGHTNESS_LEVEL    = Command{Type: 0x33, ID: 0x62} // untested
+	CMD_SET_ACTIVATION               = Command{Type: 0x31, ID: 0x65} // untested, input '0'/'1'
+	CMD_GET_ACTIVATION               = Command{Type: 0x33, ID: 0x65}
+	CMD_SET_ACTIVATION_TIME          = Command{Type: 0x31, ID: 0x66} // untested, input 8 bytes (up to epoch seconds)
+	CMD_GET_ACTIVATION_TIME          = Command{Type: 0x33, ID: 0x66}
+	CMD_SET_SUPER_ACTIVE             = Command{Type: 0x31, ID: 0x67} // unknown, input '0'/'1'
+	CMD_ENABLE_RGB_CAMERA            = Command{Type: 0x31, ID: 0x68} // untested, input '0'/'1'
+	CMD_POWER_OFF_RGB_CAMERA         = Command{Type: 0x54, ID: 0x56} // untested
+	CMD_POWER_ON_RGB_CAMERA          = Command{Type: 0x54, ID: 0x57} // untested
+	CMD_GET_RGB_CAMERA_ENABLED       = Command{Type: 0x33, ID: 0x68}
+	CMD_ENABLE_STEREO_CAMERA         = Command{Type: 0x31, ID: 0x69} // untested, input '0'/'1', OV580
+	CMD_GET_STEREO_CAMERA_ENABLED    = Command{Type: 0x33, ID: 0x69}
+	CMD_SET_DEBUG_LOG                = Command{Type: 0x40, ID: 0x31} // untested, input 0x08 (Usart) / 0x07 (CRC) / 0 disable both
+	CMD_CHECK_SONY_OTP_STUFF         = Command{Type: 0x40, ID: 0x32} // untested
+	CMD_SET_SDK_WORKS                = Command{Type: 0x40, ID: 0x33} // input '0'/'1'
+	CMD_MCU_B_JUMP_TO_A              = Command{Type: 0x40, ID: 0x38} // untested, for firmware update
+	CMD_MCU_UPDATE_FW_ON_A_START     = Command{Type: 0x40, ID: 0x39} // untested, for firmware update
+	CMD_DEFAULT_2D_FUNC_ENABLE       = Command{Type: 0x40, ID: 0x46} // unknown
+	CMD_KEYSWITCH_ENABLE             = Command{Type: 0x40, ID: 0x48} // unknown
+	CMD_HEART_BEAT                   = Command{Type: 0x40, ID: 0x4b}
+	CMD_UPDATE_DISPLAY_SUCCESS       = Command{Type: 0x40, ID: 0x4d} // this doesn't do much
+	CMD_MCU_A_JUMP_TO_B              = Command{Type: 0x40, ID: 0x52} // untested, for firmware update
+	CMD_DATA_KEY_SOMETHING           = Command{Type: 0x40, ID: 0x52} // unknown, input '1'-'6' does different things
+	CMD_SET_LIGHT_COMPENSATION       = Command{Type: 0x46, ID: 0x47} // untested
+	CMD_CALIBRATE_LIGHT_COMPENSATION = Command{Type: 0x54, ID: 0x51} // untested
+	CMD_RETRY_GET_OTP                = Command{Type: 0x54, ID: 0x52} // untested
+	CMD_GET_OLED_BRIGHTNESS_BRIT     = Command{Type: 0x54, ID: 0x55} // untested
+	// FIRMWARE_05_5_08_059 only
+	CMD_SET_MAX_BRIGHTNESS_LEVEL = Command{Type: 0x31, ID: 0x32} // shouldn't do anything, static, does not take any input
+	CMD_GET_DISPLAY_FIRMWARE     = Command{Type: 0x33, ID: 0x34} // "ELLA2_0518_V017"
+	CMD_GET_DISPLAY_HDCP         = Command{Type: 0x33, ID: 0x48} // "ELLA2_1224_HDCP"
 )
-
-func (pkttype PacketType) String() string {
-	switch pkttype {
-	case PKT_TYPE_GET:
-		return "get"
-	case PKT_TYPE_SET:
-		return "set"
-	default:
-		return "unknown"
-	}
-}
 
 type Packet struct {
-	PacketType PacketType
-	CommandID  CommandID
-	Payload    []byte
-	Timestamp  []byte
-	// Only set if is CRC ERROR or unable to deserialize
-	RawMessage string
+	Command   *Command
+	Payload   []byte
+	Timestamp []byte
+	Message   string
 }
+
+var DUMMY_PAYLOAD = []byte{' '}
 
 func (pkt *Packet) DecodeTimestamp() time.Time {
 	var t time.Time
@@ -141,12 +237,13 @@ func (pkt *Packet) String() string {
 func (pkt *Packet) Deserialize(data []byte) error {
 	if data[0] == 'C' {
 		// This is a CRC Error packet, e.g. "CAL CRC ERROR:20000614:200152e8"
-		pkt.RawMessage = string(data)
+
+		pkt.Message = string(data)
 		return nil
 	}
 
 	if data[0] != 0x02 {
-		pkt.RawMessage = string(data)
+		pkt.Message = string(data)
 		return fmt.Errorf("unrecognized data format")
 	}
 
@@ -169,8 +266,7 @@ func (pkt *Packet) Deserialize(data []byte) error {
 		return fmt.Errorf("input date carries with insufficient information")
 	}
 
-	pkt.PacketType = PacketType(parts[0][0])
-	pkt.CommandID = CommandID(parts[1][0])
+	pkt.Command = &Command{Type: parts[0][0], ID: parts[1][0]}
 	pkt.Payload = parts[2]
 	pkt.Timestamp = parts[len(parts)-2]
 
@@ -183,17 +279,17 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 
 	var buf bytes.Buffer
 
-	if pkt.RawMessage != "" {
-		buf.Write([]byte(pkt.RawMessage))
-	} else if (uint8(pkt.PacketType) == 0) || (uint8(pkt.CommandID) == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
+	if pkt.Message != "" {
+		buf.Write([]byte(pkt.Message))
+	} else if (uint8(pkt.Command.Type) == 0) || (uint8(pkt.Command.ID) == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
 		return result, fmt.Errorf("this Packet is not initialized?")
 	}
 
 	buf.WriteByte(0x02)
 	buf.WriteByte(':')
-	buf.WriteByte(uint8(pkt.PacketType))
+	buf.WriteByte(uint8(pkt.Command.Type))
 	buf.WriteByte(':')
-	buf.WriteByte(uint8(pkt.CommandID))
+	buf.WriteByte(uint8(pkt.Command.ID))
 	buf.WriteByte(':')
 	buf.Write(pkt.Payload)
 	buf.WriteByte(':')
@@ -324,7 +420,7 @@ func (l *xrealLight) initialize() error {
 }
 
 func (l *xrealLight) sendHeartBeat() error {
-	command := &Packet{PacketType: PKT_TYPE_SYS, CommandID: CMD_ID_EEPROM_VALUE_READ, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
+	command := &Packet{Command: &CMD_HEART_BEAT, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	err := l.executeOnly(command)
 	if err != nil {
 		return fmt.Errorf("failed to send a heart beat: %w", err)
@@ -386,8 +482,6 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 }
 
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
-	var unhandledPacketCount uint32
-
 	for retry := 0; retry < retryMaxAttempts; retry++ {
 		if err := l.executeOnly(command); err != nil {
 			return nil, err
@@ -409,13 +503,13 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 				break
 			}
 
-			if (response.PacketType == command.PacketType+1) && (response.CommandID == command.CommandID) {
+			if (response.Command.Type == command.Command.Type+1) && (response.Command.ID == command.Command.ID) {
 				return response.Payload, nil
 			}
 			// otherwise we received irrelevant data
 			// TODO(happyz): Handles irrelevant data
-			unhandledPacketCount++
-			slog.Debug(fmt.Sprintf("%d: got unhandled response %s", unhandledPacketCount, response.String()))
+
+			slog.Debug(fmt.Sprintf("got unhandled response %s", response.String()))
 		}
 	}
 	return nil, fmt.Errorf("failed to get a relevant response")
@@ -426,30 +520,30 @@ func getTimestampNow() []byte {
 }
 
 func (l *xrealLight) GetSerial() (string, error) {
-	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_DEVICE_SERIAL_NUMBER, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(command)
+	packet := &Packet{Command: &CMD_GET_SERIAL_NUMBER, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(packet)
 	if err != nil {
-		return "", fmt.Errorf("failed to get serial: %w", err)
+		return "", fmt.Errorf("failed to %s: %w", CMD_GET_SERIAL_NUMBER.String(), err)
 	}
 	return string(response), nil
 }
 
 func (l *xrealLight) GetFirmwareVersion() (string, error) {
-	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_FW_VERSION, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(command)
+	packet := &Packet{Command: &CMD_GET_FIRMWARE_VERSION_0, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(packet)
 	if err != nil {
-		return "", fmt.Errorf("failed to get firmware version: %w", err)
+		return "", fmt.Errorf("failed to %s: %w", CMD_GET_FIRMWARE_VERSION_0.String(), err)
 	}
 	return string(response), nil
 }
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
-	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_DISPLAY_MODE, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(command)
+	packet := &Packet{Command: &CMD_GET_DISPLAY_MODE, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(packet)
 	if err != nil {
-		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to get display mode: %w", err)
+		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to %s: %w", CMD_GET_DISPLAY_MODE.String(), err)
 	}
-	slog.Debug(fmt.Sprintf("%v responds %s", command, string(response)))
+	slog.Debug(fmt.Sprintf("%v responds %s", packet, string(response)))
 	if response[0] == '1' {
 		// "1&2D_1080"
 		return DISPLAY_MODE_SAME_ON_BOTH, nil
@@ -480,25 +574,25 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 		return fmt.Errorf("unknown display mode: %v", mode)
 	}
 
-	command := &Packet{PacketType: PKT_TYPE_SET, CommandID: CMD_ID_DISPLAY_MODE, Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(command)
+	packet := &Packet{Command: &CMD_SET_DISPLAY_MODE, Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
+	response, err := l.executeAndRead(packet)
 	if err != nil {
-		return fmt.Errorf("failed to set display mode: %w", err)
+		return fmt.Errorf("failed to %s: %w", CMD_SET_DISPLAY_MODE.String(), err)
 	}
-	slog.Debug(fmt.Sprintf("%v responds %s", command, string(response)))
+	slog.Debug(fmt.Sprintf("%v responds %s", packet, string(response)))
 	if response[0] != displayMode {
-		return fmt.Errorf("failed to set display mode: want %d got %d", displayMode, response[0])
+		return fmt.Errorf("failed to %s: want %d got %d", CMD_SET_DISPLAY_MODE.String(), displayMode, response[0])
 	}
 	return nil
 }
 
 func (l *xrealLight) GetBrightnessLevel() (string, error) {
-	command := &Packet{PacketType: PKT_TYPE_GET, CommandID: CMD_ID_BRIGHTNESS_LEVEL, Payload: []byte{'x'}, Timestamp: getTimestampNow()}
-	if response, err := l.executeAndRead(command); err != nil {
-		return "unknown", fmt.Errorf("failed to get brightness level: %w", err)
+	packet := &Packet{Command: &CMD_GET_BRIGHTNESS_LEVEL, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	if response, err := l.executeAndRead(packet); err != nil {
+		return "unknown", fmt.Errorf("failed to %s: %w", CMD_GET_BRIGHTNESS_LEVEL.String(), err)
 	} else if response[0] == '0' {
 		return "dimmest", nil
-	} else if response[0] == '7' { // CMD_ID_TOTAL_BRIGHTNESS_LEVELS tells there are 8
+	} else if response[0] == '7' { // CMD_TOTAL_BRIGHTNESS_LEVELS tells there are 8
 		return "brightest", nil
 	} else {
 		return string(response), nil
@@ -510,7 +604,7 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 		return fmt.Errorf("invalid level %s, must be 0-7", level)
 	}
 
-	command := &Packet{PacketType: PKT_TYPE_SET, CommandID: CMD_ID_BRIGHTNESS_LEVEL, Payload: []byte(level), Timestamp: getTimestampNow()}
+	command := &Packet{Command: &CMD_SET_BRIGHTNESS_LEVEL_0, Payload: []byte(level), Timestamp: getTimestampNow()}
 	response, err := l.executeAndRead(command)
 	if err != nil {
 		return fmt.Errorf("failed to set brightness level: %w", err)
@@ -520,29 +614,6 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 		return fmt.Errorf("failed to set brightness mode: want %d got %d", level[0], response[0])
 	}
 	return nil
-}
-
-func (l *xrealLight) PrintCommandIDTable() {
-	slog.Info("=======================")
-	slog.Info("PacketType : CommandId : Payload : Purpose : Output")
-	slog.Info("=======================")
-	// we loop through ASCII char that doesn't have special meanings
-	for i := uint8(0x20); i < 0x7f; i++ {
-		commandID := CommandID(i)
-		// skip
-		// if commandID.String() == "no function" {
-		// 	continue
-		// }
-		command := &Packet{PacketType: PKT_TYPE_GET, CommandID: commandID, Payload: []byte{' '}, Timestamp: getTimestampNow()}
-		response, err := l.executeAndRead(command)
-
-		if err != nil {
-			slog.Error(fmt.Sprintf("('%s' : '0x%x (%c)' : ' ' : %s : '%s') failed: %v", command.PacketType.String(), i, i, commandID.String(), string(response), err))
-			continue
-		}
-		slog.Info(fmt.Sprintf("'%s' : '0x%x (%c)' : ' ' : %s : '%s'", command.PacketType.String(), i, i, commandID.String(), string(response)))
-	}
-	slog.Info("=======================")
 }
 
 func (l *xrealLight) DevExecuteAndRead(input []string) {
@@ -556,24 +627,10 @@ func (l *xrealLight) DevExecuteAndRead(input []string) {
 		return
 	}
 
-	command := &Packet{CommandID: CommandID(input[1][0]), Payload: []byte(input[2]), Timestamp: getTimestampNow()}
+	command := Command{Type: input[0][0], ID: input[1][0]}
+	packet := &Packet{Command: &command, Payload: []byte(input[2]), Timestamp: getTimestampNow()}
 
-	switch input[0] {
-	case "get":
-		command.PacketType = PKT_TYPE_GET
-	case "set":
-		command.PacketType = PKT_TYPE_SET
-	default:
-		if len(input[0]) == 1 {
-			command.PacketType = PacketType(input[0][0])
-		} else {
-			slog.Error(fmt.Sprintf("unsupported PacketType %s", input[0]))
-			return
-		}
-	}
-
-	response, err := l.executeAndRead(command)
-
+	response, err := l.executeAndRead(packet)
 	if err != nil {
 		slog.Error(fmt.Sprintf("%v : '%s' failed: %v", command, string(response), err))
 		return

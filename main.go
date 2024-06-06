@@ -214,16 +214,8 @@ func handleDevTestCommand(d device.Device, input string) {
 	command := parts[1]
 
 	switch command {
-	case "cmdid":
-		d.PrintCommandIDTable()
-	case "get":
-		d.DevExecuteAndRead(parts[1:])
-	case "set":
-		if confirmToContinue() {
-			d.DevExecuteAndRead(parts[1:])
-		}
 	default:
-		if len(command) == 1 {
+		if len(command) == 1 { // single char input
 			if confirmToContinue() {
 				d.DevExecuteAndRead(parts[1:])
 			}

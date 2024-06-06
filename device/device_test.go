@@ -11,22 +11,21 @@ import (
 
 func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 	testCases := []struct {
-		command       *device.Packet
+		packet        *device.Packet
 		expectedBytes []byte
 		expectedError error
 	}{
 		{
-			command: &device.Packet{
-				PacketType: device.PKT_TYPE_GET,
-				CommandID:  device.CMD_ID_ACTIVATION_TIME,
-				Payload:    []byte{'c', 'd'},
-				Timestamp:  []byte("18fd37a61db"), // epoch: 1717239964 (seconds) 123 (milliseconds)
+			packet: &device.Packet{
+				Command:   &device.CMD_GET_BRIGHTNESS_LEVEL,
+				Payload:   device.DUMMY_PAYLOAD,
+				Timestamp: []byte("18fd37a61db"), // epoch: 1717239964 (seconds) 123 (milliseconds)
 			},
 		},
 	}
 
 	for _, tc := range testCases {
-		serialized, err := tc.command.Serialize()
+		serialized, err := tc.packet.Serialize()
 
 		if err != nil {
 			t.Errorf("serialize error: %v", err)
@@ -44,8 +43,8 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 
 		slog.Info(fmt.Sprintf("deserialized: %v\n", deserialized))
 
-		if !reflect.DeepEqual(tc.command, deserialized) {
-			t.Errorf("expected: %v, got: %v", tc.command, deserialized)
+		if !reflect.DeepEqual(tc.packet, deserialized) {
+			t.Errorf("expected: %v, got: %v", tc.packet, deserialized)
 		}
 	}
 }

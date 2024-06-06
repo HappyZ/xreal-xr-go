@@ -23,7 +23,6 @@ type Device interface {
 	SetDisplayMode(mode DisplayMode) error
 
 	// For development testing only
-	PrintCommandIDTable()
 	DevExecuteAndRead(intput []string)
 }
 
@@ -32,14 +31,14 @@ type DisplayMode string
 
 const (
 	DISPLAY_MODE_UNKNOWN DisplayMode = "UNKNOWN"
-	// SAME_ON_BOTH indicates that the picture should be the same for both eyes (simple 2D 1080p).
+	// SAME_ON_BOTH indicates that the picture should be the same for both eyes (simple 2D 1080p at 60Hz).
 	DISPLAY_MODE_SAME_ON_BOTH DisplayMode = "SAME_ON_BOTH"
 	// HALF_SBS sets the display to half-SBS mode, which presents itself as 1920x1080 resolution,
-	// but actually scales down everything to 960x540, then upscales to 3840x1080.
+	// but actually scales down everything to 960x540 at 120Hz, then upscales to 3840x1080.
 	DISPLAY_MODE_HALF_SBS DisplayMode = "HALF_SBS"
-	// STEREO sets the display to 1080p on both eyes.
+	// STEREO sets the display to 1080p on both eyes at 60Hz.
 	DISPLAY_MODE_STEREO DisplayMode = "STEREO"
-	// HIGH_REFRESH_RATE sets the display at 1080p 72Hz high refresh rate mode.
+	// HIGH_REFRESH_RATE sets the display at 1080p at 72Hz high refresh rate mode.
 	DISPLAY_MODE_HIGH_REFRESH_RATE DisplayMode = "HIGH_REFRESH_RATE"
 )
 
