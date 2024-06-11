@@ -239,7 +239,7 @@ func (pkt *Packet) Deserialize(data []byte) error {
 		// This is a CRC Error packet, e.g. "CAL CRC ERROR:20000614:200152e8"
 
 		pkt.Message = string(data)
-		return nil
+		return fmt.Errorf("CRC error")
 	}
 
 	if data[0] != 0x02 {
