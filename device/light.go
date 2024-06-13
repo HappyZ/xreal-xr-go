@@ -107,6 +107,17 @@ func (cmd Command) String() string {
 	}
 }
 
+type PacketType int
+
+const (
+	PACKET_TYPE_UNKNOWN PacketType = iota
+	PACKET_TYPE_CRC_ERROR
+	PACKET_TYPE_COMMAND
+	PACKET_TYPE_RESPONSE
+	PACKET_TYPE_PASSIVE
+	PACKET_TYPE_HEART_BEAT_RESPONSE
+)
+
 var (
 	// FIRMWARE_05_1_08_021 only
 	// CMD_SET_MAX_BRIGHTNESS_LEVEL     = Command{Type: 0x33, ID: 0x32} // shouldn't do anything, static, does not take any input
@@ -206,6 +217,7 @@ var (
 )
 
 type Packet struct {
+	Type      PacketType
 	Command   *Command
 	Payload   []byte
 	Timestamp []byte
@@ -240,13 +252,14 @@ func (pkt *Packet) String() string {
 func (pkt *Packet) Deserialize(data []byte) error {
 	if data[0] == 'C' {
 		// This is a CRC Error packet, e.g. "CAL CRC ERROR:20000614:200152e8"
-
-		// pkt.Message = string(data)
-		return fmt.Errorf("CRC error")
+		pkt.Type = PACKET_TYPE_CRC_ERROR
+		pkt.Message = string(data)
+		return nil
 	}
 
 	if data[0] != 0x02 {
-		// pkt.Message = string(data)
+		pkt.Message = string(data)
+		pkt.Type = PACKET_TYPE_UNKNOWN
 		return fmt.Errorf("unrecognized data format")
 	}
 
@@ -272,6 +285,18 @@ func (pkt *Packet) Deserialize(data []byte) error {
 	pkt.Command = &Command{Type: parts[0][0], ID: parts[1][0]}
 	pkt.Payload = parts[2]
 	pkt.Timestamp = parts[len(parts)-2]
+
+	if pkt.Command.Type == 0x32 || pkt.Command.Type == 0x34 || pkt.Command.Type == 0x41 || pkt.Command.Type == 0x55 {
+		if pkt.Command.Type == 0x41 && pkt.Command.ID == 0x4b {
+			pkt.Type = PACKET_TYPE_HEART_BEAT_RESPONSE
+		} else {
+			pkt.Type = PACKET_TYPE_RESPONSE
+		}
+	} else if pkt.Command.Type == 0x31 || pkt.Command.Type == 0x33 || pkt.Command.Type == 0x40 || pkt.Command.Type == 0x54 {
+		pkt.Type = PACKET_TYPE_COMMAND
+	} else {
+		pkt.Type = PACKET_TYPE_UNKNOWN
+	}
 
 	return nil
 }
@@ -358,6 +383,8 @@ func (l *xrealLight) Disconnect() error {
 	close(l.stopReadPacketsChannel)
 
 	l.waitgroup.Wait()
+
+	close(l.packetResponseChannel)
 
 	err := l.hidDevice.Close()
 	if err == nil {
@@ -515,7 +542,7 @@ func (l *xrealLight) readAndProcessPackets() error {
 	if err := l.executeOnly(packet); err != nil {
 		return err
 	}
-	for i := 0; i < 128; i++ {
+	for i := 0; i < 32; i++ {
 		buffer, err := read(l.hidDevice, readDeviceTimeout)
 		if err != nil {
 			return err
@@ -528,19 +555,25 @@ func (l *xrealLight) readAndProcessPackets() error {
 			continue
 		}
 
+		if response.Type == PACKET_TYPE_CRC_ERROR || response.Type == PACKET_TYPE_HEART_BEAT_RESPONSE {
+			// skip if CRC error packet or is a heart beat response
+			continue
+		}
+
 		if (response.Command.Type == packet.Command.Type+1) && (response.Command.ID == packet.Command.ID) {
 			// we ignore the legit response to our prior command as it's not useful for us
+			// but we stop here
 			return nil
 		}
 
 		// handle response by checking the Type, we assume only one execution happens at a time
-		if response.Command.Type == 0x32 || response.Command.Type == 0x34 || response.Command.Type == 0x41 || response.Command.Type == 0x55 {
+		if response.Type == PACKET_TYPE_RESPONSE {
 			l.packetResponseChannel <- response
-			return nil
+			continue
 		}
 
 		slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
-		l.queue.PushBack(response)
+		// l.queue.PushBack(response)
 	}
 
 	return nil

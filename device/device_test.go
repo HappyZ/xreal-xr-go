@@ -17,6 +17,7 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 	}{
 		{
 			packet: &device.Packet{
+				Type:      device.PACKET_TYPE_COMMAND,
 				Command:   &device.CMD_GET_BRIGHTNESS_LEVEL,
 				Payload:   device.DUMMY_PAYLOAD,
 				Timestamp: []byte("18fd37a61db"), // epoch: 1717239964 (seconds) 123 (milliseconds)
