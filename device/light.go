@@ -2,6 +2,7 @@ package device
 
 import (
 	"bytes"
+	"container/list"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -15,9 +16,12 @@ import (
 )
 
 const (
-	readDeviceTimeout = 300 * time.Millisecond
-	heartBeatTimeout  = 1 * time.Second
-	retryMaxAttempts  = 5
+	readDeviceTimeout   = 200 * time.Millisecond
+	readPacketTimeout   = 500 * time.Millisecond
+	readPacketFrequency = 5 * time.Millisecond
+	heartBeatTimeout    = 1 * time.Second
+	retryMaxAttempts    = 5
+	maxQueueSize        = 1024
 )
 
 type Command struct {
@@ -238,12 +242,12 @@ func (pkt *Packet) Deserialize(data []byte) error {
 	if data[0] == 'C' {
 		// This is a CRC Error packet, e.g. "CAL CRC ERROR:20000614:200152e8"
 
-		pkt.Message = string(data)
+		// pkt.Message = string(data)
 		return fmt.Errorf("CRC error")
 	}
 
 	if data[0] != 0x02 {
-		pkt.Message = string(data)
+		// pkt.Message = string(data)
 		return fmt.Errorf("unrecognized data format")
 	}
 
@@ -320,12 +324,18 @@ type xrealLight struct {
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
+	// queue for Packet processing
+	queue *list.List
 	// mutex for thread safety
 	mutex sync.Mutex
-	// waitgroup to wait for heart beat to stop sending
+	// waitgroup to wait for multiple goroutines to stop
 	waitgroup sync.WaitGroup
 	// channel to signal heart beat to stop
 	stopHeartBeatChannel chan struct{}
+	// channel to signal packet reading to stop
+	stopReadPacketsChannel chan struct{}
+	// channel to signal a command packet response
+	packetResponseChannel chan *Packet
 }
 
 func (l *xrealLight) Name() string {
@@ -345,11 +355,11 @@ func (l *xrealLight) Disconnect() error {
 		return nil
 	}
 
-	// Sends signal to stop heart beat channel and wait for it
 	close(l.stopHeartBeatChannel)
+	close(l.stopReadPacketsChannel)
+
 	l.waitgroup.Wait()
 
-	// Properly closes the hid device opened
 	err := l.hidDevice.Close()
 	if err == nil {
 		l.hidDevice = nil
@@ -403,18 +413,15 @@ func (l *xrealLight) Connect() error {
 }
 
 func (l *xrealLight) initialize() error {
-	// Initialize the stop channel
+	l.packetResponseChannel = make(chan *Packet)
+
 	l.stopHeartBeatChannel = make(chan struct{})
 	l.waitgroup.Add(1)
 	go l.sendPeriodicHeartBeat()
 
-	// Disabled below because it is not necessary to send this if not in SBS mode
-	// Sends an "SDK works" message
-	// command := &Packet{PacketType: '@', CommandID: CMD_ID_DISPLAY_MODE, Payload: []byte{'1'}, Timestamp: getTimestampNow()}
-	// err := l.executeOnly(command)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to send SDK works message: %w", err)
-	// }
+	l.stopReadPacketsChannel = make(chan struct{})
+	l.waitgroup.Add(1)
+	go l.readPacketsPeriodically()
 
 	return nil
 }
@@ -447,6 +454,24 @@ func (l *xrealLight) sendPeriodicHeartBeat() {
 	}
 }
 
+// readPacketsPeriodically is a goroutine method to read info from XREAL Light HID device
+func (l *xrealLight) readPacketsPeriodically() {
+	defer l.waitgroup.Done()
+
+	ticker := time.NewTicker(readPacketFrequency)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			err := l.readAndProcessPackets()
+			slog.Debug(err.Error())
+		case <-l.stopReadPacketsChannel:
+			return
+		}
+	}
+}
+
 func execute(device *hid.Device, serialized []byte) error {
 	_, err := device.Write(serialized)
 	if err != nil {
@@ -464,7 +489,7 @@ func (l *xrealLight) executeOnly(command *Packet) error {
 		return fmt.Errorf("failed to serialize command %v: %w", command, err)
 	} else {
 		if err := execute(l.hidDevice, serialized[:]); err != nil {
-			return fmt.Errorf("failed to send command %v: %w", command, err)
+			return err
 		}
 	}
 	return nil
@@ -481,38 +506,52 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 	return buffer, nil
 }
 
+func (l *xrealLight) readAndProcessPackets() error {
+	// mutex uncommented as we don't read from other places
+
+	// l.mutex.Lock()
+
+	// defer l.mutex.Unlock()
+
+	buffer, err := read(l.hidDevice, readDeviceTimeout)
+
+	if err != nil {
+		return err
+	}
+
+	response := &Packet{}
+
+	if err := response.Deserialize(buffer[:]); err != nil {
+		return fmt.Errorf("failed to deserialize %v (%s): %w", buffer, string(buffer[:]), err)
+	}
+
+	// handle response by checking the ID, we assume only one execution happens at a time
+	if response.Command.ID == 0x32 || response.Command.ID == 0x34 || response.Command.ID == 0x41 || response.Command.ID == 0x55 {
+		l.packetResponseChannel <- response
+	}
+
+	slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
+	l.queue.PushBack(response)
+	return nil
+}
+
 func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 	for retry := 0; retry < retryMaxAttempts; retry++ {
-		if err := l.executeOnly(command); err != nil {
-			return nil, err
-		}
-
-		for i := 0; i < 128; i++ {
-			l.mutex.Lock()
-			buffer, err := read(l.hidDevice, readDeviceTimeout)
-			l.mutex.Unlock()
-			if err != nil {
-				slog.Debug(fmt.Sprintf("failed to read response: %v", err))
-				break
+		if err := l.executeOnly(command); err == nil {
+			select {
+			case response := <-l.packetResponseChannel:
+				if (response.Command.Type == command.Command.Type+1) && (response.Command.ID == command.Command.ID) {
+					return response.Payload, nil
+				}
+			case <-time.After(readPacketTimeout):
+				if retry < retryMaxAttempts-1 {
+					continue
+				}
+				return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
 			}
-
-			response := &Packet{}
-
-			if err := response.Deserialize(buffer[:]); err != nil {
-				slog.Debug(fmt.Sprintf("failed to deserialize %v (%s): %v\n", buffer, string(buffer[:]), err))
-				break
-			}
-
-			if (response.Command.Type == command.Command.Type+1) && (response.Command.ID == command.Command.ID) {
-				return response.Payload, nil
-			}
-			// otherwise we received irrelevant data
-			// TODO(happyz): Handles irrelevant data
-
-			slog.Debug(fmt.Sprintf("got unhandled response %s", response.String()))
 		}
 	}
-	return nil, fmt.Errorf("failed to get a relevant response")
+	return nil, fmt.Errorf("failed to get a relevant response for %s: exceed max retries (%d)", command.String(), retryMaxAttempts)
 }
 
 func getTimestampNow() []byte {
