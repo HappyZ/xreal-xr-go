@@ -16,12 +16,11 @@ import (
 )
 
 const (
-	readDeviceTimeout   = 200 * time.Millisecond
+	readDeviceTimeout   = 5 * time.Millisecond
 	readPacketTimeout   = 1 * time.Second
-	readPacketFrequency = 10 * time.Millisecond
+	readPacketFrequency = 1 * time.Millisecond
 	heartBeatTimeout    = 1 * time.Second
 	retryMaxAttempts    = 5
-	maxQueueSize        = 1024
 )
 
 type Command struct {
@@ -508,53 +507,64 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 	return buffer, nil
 }
 
+// readAndProcessPackets sends a legit packet request to device and receives a set of packets to be processed.
+// This method should be called as frequently as possible to track the time of the packets more accurately.
 func (l *xrealLight) readAndProcessPackets() error {
-	// mutex uncommented as we don't read from other places
-
-	// l.mutex.Lock()
-
-	// defer l.mutex.Unlock()
-
-	buffer, err := read(l.hidDevice, readDeviceTimeout)
-
-	if err != nil {
+	packet := &Packet{Command: &CMD_GET_NREAL_FW_STRING, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	// we must send a packet to get all responses, which is a bit lame
+	if err := l.executeOnly(packet); err != nil {
 		return err
 	}
+	for i := 0; i < 128; i++ {
+		buffer, err := read(l.hidDevice, readDeviceTimeout)
+		if err != nil {
+			return err
+		}
 
-	response := &Packet{}
+		response := &Packet{}
 
-	if err := response.Deserialize(buffer[:]); err != nil {
-		return fmt.Errorf("failed to deserialize %v (%s): %w", buffer, string(buffer[:]), err)
+		if err := response.Deserialize(buffer[:]); err != nil {
+			slog.Debug(fmt.Sprintf("failed to deserialize %v (%s): %v", buffer, string(buffer[:]), err))
+			continue
+		}
+
+		if (response.Command.Type == packet.Command.Type+1) && (response.Command.ID == packet.Command.ID) {
+			// we ignore the legit response to our prior command as it's not useful for us
+			return nil
+		}
+
+		// handle response by checking the Type, we assume only one execution happens at a time
+		if response.Command.Type == 0x32 || response.Command.Type == 0x34 || response.Command.Type == 0x41 || response.Command.Type == 0x55 {
+			l.packetResponseChannel <- response
+			return nil
+		}
+
+		slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
+		l.queue.PushBack(response)
 	}
 
-	// handle response by checking the Type, we assume only one execution happens at a time
-	if response.Command.Type == 0x32 || response.Command.Type == 0x34 || response.Command.Type == 0x41 || response.Command.Type == 0x55 {
-		l.packetResponseChannel <- response
-		return nil
-	}
-
-	slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
-	l.queue.PushBack(response)
 	return nil
 }
 
-func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
+func (l *xrealLight) executeAndWaitForResponse(command *Packet) ([]byte, error) {
+	if err := l.executeOnly(command); err != nil {
+		return nil, err
+	}
 	for retry := 0; retry < retryMaxAttempts; retry++ {
-		if err := l.executeOnly(command); err == nil {
-			select {
-			case response := <-l.packetResponseChannel:
-				if (response.Command.Type == command.Command.Type+1) && (response.Command.ID == command.Command.ID) {
-					return response.Payload, nil
-				}
-			case <-time.After(readPacketTimeout):
-				if retry < retryMaxAttempts-1 {
-					slog.Debug(fmt.Sprintf("timed out waiting for packet response for %s, retry", command.String()))
-					continue
-				}
-				return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
+		select {
+		case response := <-l.packetResponseChannel:
+			if (response.Command.Type == command.Command.Type+1) && (response.Command.ID == command.Command.ID) {
+				return response.Payload, nil
 			}
+		case <-time.After(readPacketTimeout):
+			if retry < retryMaxAttempts-1 {
+				slog.Debug(fmt.Sprintf("timed out waiting for packet response for %s, retry", command.String()))
+				continue
+			}
+			return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
 		}
 	}
+
 	return nil, fmt.Errorf("failed to get a relevant response for %s: exceed max retries (%d)", command.String(), retryMaxAttempts)
 }
 
@@ -564,7 +574,7 @@ func getTimestampNow() []byte {
 
 func (l *xrealLight) GetSerial() (string, error) {
 	packet := &Packet{Command: &CMD_GET_SERIAL_NUMBER, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(packet)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return "", fmt.Errorf("failed to %s: %w", CMD_GET_SERIAL_NUMBER.String(), err)
 	}
@@ -573,7 +583,7 @@ func (l *xrealLight) GetSerial() (string, error) {
 
 func (l *xrealLight) GetFirmwareVersion() (string, error) {
 	packet := &Packet{Command: &CMD_GET_FIRMWARE_VERSION_0, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(packet)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return "", fmt.Errorf("failed to %s: %w", CMD_GET_FIRMWARE_VERSION_0.String(), err)
 	}
@@ -582,7 +592,7 @@ func (l *xrealLight) GetFirmwareVersion() (string, error) {
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
 	packet := &Packet{Command: &CMD_GET_DISPLAY_MODE, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(packet)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to %s: %w", CMD_GET_DISPLAY_MODE.String(), err)
 	}
@@ -618,7 +628,7 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 	}
 
 	packet := &Packet{Command: &CMD_SET_DISPLAY_MODE, Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(packet)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return fmt.Errorf("failed to %s: %w", CMD_SET_DISPLAY_MODE.String(), err)
 	}
@@ -631,7 +641,7 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 
 func (l *xrealLight) GetBrightnessLevel() (string, error) {
 	packet := &Packet{Command: &CMD_GET_BRIGHTNESS_LEVEL, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
-	if response, err := l.executeAndRead(packet); err != nil {
+	if response, err := l.executeAndWaitForResponse(packet); err != nil {
 		return "unknown", fmt.Errorf("failed to %s: %w", CMD_GET_BRIGHTNESS_LEVEL.String(), err)
 	} else if response[0] == '0' {
 		return "dimmest", nil
@@ -648,7 +658,7 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 	}
 
 	command := &Packet{Command: &CMD_SET_BRIGHTNESS_LEVEL_0, Payload: []byte(level), Timestamp: getTimestampNow()}
-	response, err := l.executeAndRead(command)
+	response, err := l.executeAndWaitForResponse(command)
 	if err != nil {
 		return fmt.Errorf("failed to set brightness level: %w", err)
 	}
@@ -673,7 +683,7 @@ func (l *xrealLight) DevExecuteAndRead(input []string) {
 	command := Command{Type: input[0][0], ID: input[1][0]}
 	packet := &Packet{Command: &command, Payload: []byte(input[2]), Timestamp: getTimestampNow()}
 
-	response, err := l.executeAndRead(packet)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		slog.Error(fmt.Sprintf("%v : '%s' failed: %v", command, string(response), err))
 		return
