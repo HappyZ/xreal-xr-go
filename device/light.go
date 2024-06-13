@@ -597,6 +597,19 @@ func (l *xrealLight) readAndProcessPackets() error {
 			continue
 		}
 
+		// handle MCU
+		if response.Type == PACKET_TYPE_MCU {
+			if response.Command.Equals(&MCU_KEY_PRESS) {
+				slog.Info(fmt.Sprintf("Key pressed: %s", string(response.Payload)))
+			} else if response.Command.Equals(&MCU_PROXIMITY) {
+				slog.Info(fmt.Sprintf("Proximity: %s", string(response.Payload)))
+			} else if response.Command.Equals(&MCU_AMBIENT_LIGHT) {
+				slog.Info(fmt.Sprintf("Ambient Light: %s", string(response.Payload)))
+			}
+			// VSync has too many messages, cannot print
+			continue
+		}
+
 		slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
 		// l.queue.PushBack(response)
 	}
