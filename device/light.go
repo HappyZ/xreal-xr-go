@@ -18,7 +18,7 @@ import (
 const (
 	readDeviceTimeout   = 200 * time.Millisecond
 	readPacketTimeout   = 500 * time.Millisecond
-	readPacketFrequency = 5 * time.Millisecond
+	readPacketFrequency = 10 * time.Millisecond
 	heartBeatTimeout    = 1 * time.Second
 	retryMaxAttempts    = 5
 	maxQueueSize        = 1024
@@ -413,6 +413,7 @@ func (l *xrealLight) Connect() error {
 }
 
 func (l *xrealLight) initialize() error {
+	l.queue = &list.List{}
 	l.packetResponseChannel = make(chan *Packet)
 
 	l.stopHeartBeatChannel = make(chan struct{})
@@ -464,8 +465,9 @@ func (l *xrealLight) readPacketsPeriodically() {
 	for {
 		select {
 		case <-ticker.C:
-			err := l.readAndProcessPackets()
-			slog.Debug(err.Error())
+			if err := l.readAndProcessPackets(); err != nil {
+				slog.Debug(err.Error())
+			}
 		case <-l.stopReadPacketsChannel:
 			return
 		}
@@ -525,9 +527,10 @@ func (l *xrealLight) readAndProcessPackets() error {
 		return fmt.Errorf("failed to deserialize %v (%s): %w", buffer, string(buffer[:]), err)
 	}
 
-	// handle response by checking the ID, we assume only one execution happens at a time
-	if response.Command.ID == 0x32 || response.Command.ID == 0x34 || response.Command.ID == 0x41 || response.Command.ID == 0x55 {
+	// handle response by checking the Type, we assume only one execution happens at a time
+	if response.Command.Type == 0x32 || response.Command.Type == 0x34 || response.Command.Type == 0x41 || response.Command.Type == 0x55 {
 		l.packetResponseChannel <- response
+		return nil
 	}
 
 	slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
