@@ -28,6 +28,10 @@ type Command struct {
 	ID   uint8
 }
 
+func (cmd Command) Equals(another *Command) bool {
+	return (cmd.Type == another.Type) && (cmd.ID == another.ID)
+}
+
 func (cmd Command) String() string {
 	switch cmd {
 	case CMD_GET_STOCK_FIRMWARE_VERSION:
@@ -114,7 +118,7 @@ const (
 	PACKET_TYPE_CRC_ERROR
 	PACKET_TYPE_COMMAND
 	PACKET_TYPE_RESPONSE
-	PACKET_TYPE_PASSIVE
+	PACKET_TYPE_MCU
 	PACKET_TYPE_HEART_BEAT_RESPONSE
 )
 
@@ -156,13 +160,16 @@ var (
 	CMD_SET_OLED_RIGHT_HORIZONTAL    = Command{Type: 0x31, ID: 0x4a} // unknown purpose, input is integer 0-255
 	CMD_SET_OLED_RIGHT_VERTICAL      = Command{Type: 0x31, ID: 0x4b} // unknown purpose, input is integer 0-255
 	CMD_GET_OLED_LRHV_VALUE          = Command{Type: 0x33, ID: 0x4a} // unknown purpose, LH-LV-RH-RV values set above, mine default with 'L05L06R27R26'
+	MCU_KEY_PRESS                    = Command{Type: 0x35, ID: 0x4b}
 	CMD_ENABLE_AMBIENT_LIGHT         = Command{Type: 0x31, ID: 0x4c}
 	CMD_GET_AMBIENT_LIGHT_ENABLED    = Command{Type: 0x33, ID: 0x4c}
+	MCU_AMBIENT_LIGHT                = Command{Type: 0x35, ID: 0x4c}
 	CMD_SET_DUTY                     = Command{Type: 0x31, ID: 0x4d} // affect display brightness, input is integer 0-100
 	CMD_GET_DUTY                     = Command{Type: 0x33, ID: 0x4d}
 	CMD_ENABLE_VSYNC                 = Command{Type: 0x31, ID: 0x4e} // input '0'/'1'
 	CMD_GET_ENABLE_VSYNC_ENABLED     = Command{Type: 0x33, ID: 0x4e} // mine default with 1
-	RESP_VSYNC                       = Command{Type: 0x35, ID: 0x53}
+	MCU_VSYNC                        = Command{Type: 0x35, ID: 0x53}
+	MCU_PROXIMITY                    = Command{Type: 0x35, ID: 0x50}
 	CMD_SET_SLEEP_TIME               = Command{Type: 0x31, ID: 0x51} // input is integer that's larger than 20
 	CMD_GET_SLEEP_TIME               = Command{Type: 0x33, ID: 0x51} // mine by default is 60
 	CMD_GET_GLASS_START_UP_NUM       = Command{Type: 0x33, ID: 0x52} // unknown purpose
@@ -173,7 +180,7 @@ var (
 	CMD_ENABLE_MAGNETOMETER          = Command{Type: 0x31, ID: 0x55} // input '0'/'1'
 	CMD_GET_MAGNETOMETER_ENABLED     = Command{Type: 0x33, ID: 0x55}
 	CMD_READ_MAGNETOMETER            = Command{Type: 0x54, ID: 0x45} // untested
-	RESP_MAGNETOMETER                = Command{Type: 0x35, ID: 0x4d}
+	MCU_MAGNETOMETER                 = Command{Type: 0x35, ID: 0x4d}
 	CMD_GET_NREAL_FW_STRING          = Command{Type: 0x33, ID: 0x56} // hardcoded string `NrealFW`
 	CMD_GET_MCU_SERIES               = Command{Type: 0x33, ID: 0x58} // hardcoded string `STM32F413MGY6`
 	CMD_GET_MCU_ROM_SIZE             = Command{Type: 0x33, ID: 0x59} // hardcoded string `ROM_1.5Mbytes`
@@ -284,7 +291,6 @@ func (pkt *Packet) Deserialize(data []byte) error {
 
 	pkt.Command = &Command{Type: parts[0][0], ID: parts[1][0]}
 	pkt.Payload = parts[2]
-	pkt.Timestamp = parts[len(parts)-2]
 
 	if pkt.Command.Type == 0x32 || pkt.Command.Type == 0x34 || pkt.Command.Type == 0x41 || pkt.Command.Type == 0x55 {
 		if pkt.Command.Type == 0x41 && pkt.Command.ID == 0x4b {
@@ -292,10 +298,22 @@ func (pkt *Packet) Deserialize(data []byte) error {
 		} else {
 			pkt.Type = PACKET_TYPE_RESPONSE
 		}
+		pkt.Timestamp = parts[len(parts)-2]
 	} else if pkt.Command.Type == 0x31 || pkt.Command.Type == 0x33 || pkt.Command.Type == 0x40 || pkt.Command.Type == 0x54 {
 		pkt.Type = PACKET_TYPE_COMMAND
+		pkt.Timestamp = parts[len(parts)-2]
+	} else if pkt.Command.Type == 0x35 {
+		if pkt.Command.ID == 0x4b || pkt.Command.ID == 0x4c || pkt.Command.ID == 0x4d || pkt.Command.ID == 0x50 {
+			pkt.Type = PACKET_TYPE_MCU
+		} else {
+			pkt.Type = PACKET_TYPE_UNKNOWN
+		}
+		pkt.Message = string(data)
+		pkt.Timestamp = getTimestampNow()
 	} else {
 		pkt.Type = PACKET_TYPE_UNKNOWN
+		pkt.Message = string(data)
+		pkt.Timestamp = getTimestampNow()
 	}
 
 	return nil
@@ -307,9 +325,16 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 
 	var buf bytes.Buffer
 
-	if pkt.Message != "" {
-		buf.Write([]byte(pkt.Message))
-	} else if (uint8(pkt.Command.Type) == 0) || (uint8(pkt.Command.ID) == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
+	if pkt.Type == PACKET_TYPE_CRC_ERROR || pkt.Type == PACKET_TYPE_UNKNOWN || pkt.Type == PACKET_TYPE_MCU {
+		if pkt.Message != "" {
+			buf.Write([]byte(pkt.Message))
+			return result, nil
+		}
+		return result, fmt.Errorf("this Packet does not contain Message")
+	}
+
+	// All other types should have the following four fields
+	if (uint8(pkt.Command.Type) == 0) || (uint8(pkt.Command.ID) == 0) || (pkt.Payload == nil) || (pkt.Timestamp == nil) {
 		return result, fmt.Errorf("this Packet is not initialized?")
 	}
 
@@ -454,7 +479,7 @@ func (l *xrealLight) initialize() error {
 }
 
 func (l *xrealLight) sendHeartBeat() error {
-	command := &Packet{Command: &CMD_HEART_BEAT, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	command := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_HEART_BEAT, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	err := l.executeOnly(command)
 	if err != nil {
 		return fmt.Errorf("failed to send a heart beat: %w", err)
@@ -537,7 +562,7 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 // readAndProcessPackets sends a legit packet request to device and receives a set of packets to be processed.
 // This method should be called as frequently as possible to track the time of the packets more accurately.
 func (l *xrealLight) readAndProcessPackets() error {
-	packet := &Packet{Command: &CMD_GET_NREAL_FW_STRING, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_NREAL_FW_STRING, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	// we must send a packet to get all responses, which is a bit lame
 	if err := l.executeOnly(packet); err != nil {
 		return err
@@ -606,7 +631,7 @@ func getTimestampNow() []byte {
 }
 
 func (l *xrealLight) GetSerial() (string, error) {
-	packet := &Packet{Command: &CMD_GET_SERIAL_NUMBER, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_SERIAL_NUMBER, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return "", fmt.Errorf("failed to %s: %w", CMD_GET_SERIAL_NUMBER.String(), err)
@@ -615,7 +640,7 @@ func (l *xrealLight) GetSerial() (string, error) {
 }
 
 func (l *xrealLight) GetFirmwareVersion() (string, error) {
-	packet := &Packet{Command: &CMD_GET_FIRMWARE_VERSION_0, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_FIRMWARE_VERSION_0, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return "", fmt.Errorf("failed to %s: %w", CMD_GET_FIRMWARE_VERSION_0.String(), err)
@@ -624,7 +649,7 @@ func (l *xrealLight) GetFirmwareVersion() (string, error) {
 }
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
-	packet := &Packet{Command: &CMD_GET_DISPLAY_MODE, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_DISPLAY_MODE, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to %s: %w", CMD_GET_DISPLAY_MODE.String(), err)
@@ -660,7 +685,7 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 		return fmt.Errorf("unknown display mode: %v", mode)
 	}
 
-	packet := &Packet{Command: &CMD_SET_DISPLAY_MODE, Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_SET_DISPLAY_MODE, Payload: []byte{displayMode}, Timestamp: getTimestampNow()}
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
 		return fmt.Errorf("failed to %s: %w", CMD_SET_DISPLAY_MODE.String(), err)
@@ -673,7 +698,7 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 }
 
 func (l *xrealLight) GetBrightnessLevel() (string, error) {
-	packet := &Packet{Command: &CMD_GET_BRIGHTNESS_LEVEL, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_BRIGHTNESS_LEVEL, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
 	if response, err := l.executeAndWaitForResponse(packet); err != nil {
 		return "unknown", fmt.Errorf("failed to %s: %w", CMD_GET_BRIGHTNESS_LEVEL.String(), err)
 	} else if response[0] == '0' {
@@ -690,7 +715,7 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 		return fmt.Errorf("invalid level %s, must be 0-7", level)
 	}
 
-	command := &Packet{Command: &CMD_SET_BRIGHTNESS_LEVEL_0, Payload: []byte(level), Timestamp: getTimestampNow()}
+	command := &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_SET_BRIGHTNESS_LEVEL_0, Payload: []byte(level), Timestamp: getTimestampNow()}
 	response, err := l.executeAndWaitForResponse(command)
 	if err != nil {
 		return fmt.Errorf("failed to set brightness level: %w", err)
@@ -714,7 +739,7 @@ func (l *xrealLight) DevExecuteAndRead(input []string) {
 	}
 
 	command := Command{Type: input[0][0], ID: input[1][0]}
-	packet := &Packet{Command: &command, Payload: []byte(input[2]), Timestamp: getTimestampNow()}
+	packet := &Packet{Type: PACKET_TYPE_COMMAND, Command: &command, Payload: []byte(input[2]), Timestamp: getTimestampNow()}
 
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
