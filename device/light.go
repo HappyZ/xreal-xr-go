@@ -17,7 +17,7 @@ import (
 
 const (
 	readDeviceTimeout   = 200 * time.Millisecond
-	readPacketTimeout   = 500 * time.Millisecond
+	readPacketTimeout   = 1 * time.Second
 	readPacketFrequency = 10 * time.Millisecond
 	heartBeatTimeout    = 1 * time.Second
 	retryMaxAttempts    = 5
@@ -466,7 +466,7 @@ func (l *xrealLight) readPacketsPeriodically() {
 		select {
 		case <-ticker.C:
 			if err := l.readAndProcessPackets(); err != nil {
-				slog.Debug(err.Error())
+				slog.Debug(fmt.Sprintf("readAndProcessPackets(): %v", err))
 			}
 		case <-l.stopReadPacketsChannel:
 			return
@@ -548,6 +548,7 @@ func (l *xrealLight) executeAndRead(command *Packet) ([]byte, error) {
 				}
 			case <-time.After(readPacketTimeout):
 				if retry < retryMaxAttempts-1 {
+					slog.Debug(fmt.Sprintf("timed out waiting for packet response for %s, retry", command.String()))
 					continue
 				}
 				return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
