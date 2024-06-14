@@ -11,9 +11,7 @@ import (
 
 func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 	testCases := []struct {
-		packet        *device.Packet
-		expectedBytes []byte
-		expectedError error
+		packet *device.Packet
 	}{
 		{
 			packet: &device.Packet{

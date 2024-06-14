@@ -2,7 +2,6 @@ package device
 
 import (
 	"bytes"
-	"container/list"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -16,7 +15,7 @@ import (
 )
 
 const (
-	readDeviceTimeout   = 8 * time.Millisecond
+	readDeviceTimeout   = 30 * time.Millisecond
 	readPacketFrequency = 10 * time.Millisecond
 
 	waitForPacketTimeout = 1 * time.Second
@@ -108,6 +107,16 @@ func (cmd Command) String() string {
 		return "set or unset SDK works"
 	case CMD_GLASS_SLEEP:
 		return "force glass to sleep (disconnect)"
+	case MCU_AMBIENT_LIGHT:
+		return "ambient light report event"
+	case MCU_KEY_PRESS:
+		return "key pressed report event"
+	case MCU_MAGNETOMETER:
+		return "magnetometer report event"
+	case MCU_PROXIMITY:
+		return "proximity report event"
+	case MCU_VSYNC:
+		return "v-sync report event"
 	default:
 		return "unknown / no function"
 	}
@@ -305,7 +314,7 @@ func (pkt *Packet) Deserialize(data []byte) error {
 		pkt.Type = PACKET_TYPE_COMMAND
 		pkt.Timestamp = parts[len(parts)-2]
 	} else if pkt.Command.Type == 0x35 {
-		if pkt.Command.ID == 0x4b || pkt.Command.ID == 0x4c || pkt.Command.ID == 0x4d || pkt.Command.ID == 0x50 {
+		if pkt.Command.ID == 0x4b || pkt.Command.ID == 0x4c || pkt.Command.ID == 0x4d || pkt.Command.ID == 0x50 || pkt.Command.ID == 0x53 {
 			pkt.Type = PACKET_TYPE_MCU
 		} else {
 			pkt.Type = PACKET_TYPE_UNKNOWN
@@ -375,8 +384,6 @@ type xrealLight struct {
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
-	// queue for Packet processing
-	queue *list.List
 	// mutex for thread safety
 	mutex sync.Mutex
 	// waitgroup to wait for multiple goroutines to stop
@@ -606,12 +613,17 @@ func (l *xrealLight) readAndProcessPackets() error {
 				slog.Info(fmt.Sprintf("Proximity: %s", string(response.Payload)))
 			} else if response.Command.Equals(&MCU_AMBIENT_LIGHT) {
 				slog.Info(fmt.Sprintf("Ambient Light: %s", string(response.Payload)))
+			} else if response.Command.Equals(&MCU_VSYNC) {
+				// VSync has too many messages, cannot print
+			} else if response.Command.Equals(&MCU_MAGNETOMETER) {
+				slog.Debug(fmt.Sprintf("Magnetometer: %s (at time %s)", string(response.Payload), response.DecodeTimestamp()))
+			} else {
+				slog.Debug(fmt.Sprintf("got unhandled MCU packet: %v %s", response.Command, string(response.Payload)))
 			}
-			// VSync has too many messages, cannot print
 			continue
 		}
 
-		slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
+		slog.Debug(fmt.Sprintf("got unhandled packet: %v from %s", response, string(buffer[:])))
 	}
 
 	return nil
@@ -659,6 +671,40 @@ func (l *xrealLight) GetFirmwareVersion() (string, error) {
 		return "", fmt.Errorf("failed to %s: %w", CMD_GET_FIRMWARE_VERSION_0.String(), err)
 	}
 	return string(response), nil
+}
+
+func (l *xrealLight) GetOptionsEnabled(options []string) []string {
+	var results []string
+
+	for _, option := range options {
+		var packet *Packet
+
+		switch option {
+		case "ambientlight":
+			packet = &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_AMBIENT_LIGHT_ENABLED, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+		case "vsync":
+			packet = &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_ENABLE_VSYNC_ENABLED, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+		case "activated":
+			packet = &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_ACTIVATION, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+		case "magnetometer":
+			packet = &Packet{Type: PACKET_TYPE_COMMAND, Command: &CMD_GET_MAGNETOMETER_ENABLED, Payload: DUMMY_PAYLOAD, Timestamp: getTimestampNow()}
+		default:
+		}
+
+		if packet == nil {
+			results = append(results, "unknown option")
+			continue
+		}
+
+		response, err := l.executeAndWaitForResponse(packet)
+		if err != nil {
+			results = append(results, fmt.Sprintf("failed to %s: %v", packet.Command.String(), err))
+
+		} else {
+			results = append(results, fmt.Sprintf("%s: %s", packet.Command.String(), string(response)))
+		}
+	}
+	return results
 }
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {

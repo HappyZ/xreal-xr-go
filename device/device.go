@@ -22,6 +22,8 @@ type Device interface {
 	GetDisplayMode() (DisplayMode, error)
 	SetDisplayMode(mode DisplayMode) error
 
+	GetOptionsEnabled(options []string) []string
+
 	// For development testing only
 	DevExecuteAndRead(intput []string)
 }

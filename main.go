@@ -108,7 +108,7 @@ func main() {
 					continue
 				}
 				for _, info := range devices {
-					slog.Info(fmt.Sprintf("- path: %s - serialNumber: %s\n", info.Path, info.SerialNbr))
+					slog.Info(fmt.Sprintf("- path: %s - serialNumber: %s", info.Path, info.SerialNbr))
 				}
 				continue
 			}
@@ -159,12 +159,13 @@ func handleDeviceConnection(input string, config constant.Config) device.Device 
 
 func handleGetCommand(d device.Device, input string) {
 	parts := strings.Split(input, " ")
-	if len(parts) != 2 {
-		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'get <command>'", parts, len(parts)))
+	if len(parts) < 2 {
+		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'get <command> <optional:args>'", parts, len(parts)))
 		return
 	}
 
 	command := parts[1]
+	args := parts[2:]
 
 	switch command {
 	case "serial":
@@ -188,6 +189,11 @@ func handleGetCommand(d device.Device, input string) {
 			return
 		}
 		slog.Info(fmt.Sprintf("Brightness Level: %s", brightness))
+	case "options":
+		results := d.GetOptionsEnabled(args)
+		for i, result := range results {
+			slog.Info(fmt.Sprintf("%s: %s", args[i], result))
+		}
 	default:
 		slog.Error("unknown command")
 	}
