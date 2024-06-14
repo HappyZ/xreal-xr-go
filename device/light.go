@@ -384,6 +384,11 @@ type xrealLight struct {
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
+	// keyEventHandler callback func
+	keyEventHandler func(KeyEvent)
+	// proximityEventHandler callback func
+	proximityEventHandler func(ProximityEvent)
+
 	// mutex for thread safety
 	mutex sync.Mutex
 	// waitgroup to wait for multiple goroutines to stop
@@ -473,6 +478,17 @@ func (l *xrealLight) Connect() error {
 }
 
 func (l *xrealLight) initialize() error {
+	if l.keyEventHandler == nil {
+		l.keyEventHandler = func(key KeyEvent) {
+			slog.Info(fmt.Sprintf("Key pressed: %s", key.String()))
+		}
+	}
+	if l.proximityEventHandler == nil {
+		l.proximityEventHandler = func(proximity ProximityEvent) {
+			slog.Info(fmt.Sprintf("Proximity: %s", proximity.String()))
+		}
+	}
+
 	l.packetResponseChannel = make(chan *Packet)
 
 	l.stopHeartBeatChannel = make(chan struct{})
@@ -608,9 +624,25 @@ func (l *xrealLight) readAndProcessPackets() error {
 		// handle MCU
 		if response.Type == PACKET_TYPE_MCU {
 			if response.Command.Equals(&MCU_KEY_PRESS) {
-				slog.Info(fmt.Sprintf("Key pressed: %s", string(response.Payload)))
+				switch string(response.Payload) {
+				case "UP":
+					l.keyEventHandler(KEY_UP_PRESSED)
+				case "DN":
+					l.keyEventHandler(KEY_DOWN_PRESSED)
+				default:
+					slog.Debug(fmt.Sprintf("Key pressed unrecognized: %s", string(response.Payload)))
+					l.keyEventHandler(KEY_UNKNOWN)
+				}
 			} else if response.Command.Equals(&MCU_PROXIMITY) {
-				slog.Info(fmt.Sprintf("Proximity: %s", string(response.Payload)))
+				switch string(response.Payload) {
+				case "far":
+					l.proximityEventHandler(PROXIMITY_FAR)
+				case "near":
+					l.proximityEventHandler(PROXIMITY_NEAR)
+				default:
+					slog.Info(fmt.Sprintf("Proximity unrecognized: %s", string(response.Payload)))
+					l.proximityEventHandler(PROXIMITY_UKNOWN)
+				}
 			} else if response.Command.Equals(&MCU_AMBIENT_LIGHT) {
 				slog.Info(fmt.Sprintf("Ambient Light: %s", string(response.Payload)))
 			} else if response.Command.Equals(&MCU_VSYNC) {
@@ -784,6 +816,14 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 		return fmt.Errorf("failed to set brightness mode: want %d got %d", level[0], response[0])
 	}
 	return nil
+}
+
+func (l *xrealLight) SetKeyEventHandler(handler KeyEventHandler) {
+	l.keyEventHandler = handler
+}
+
+func (l *xrealLight) SetProximityEventHandler(handler ProximityEventHandler) {
+	l.proximityEventHandler = handler
 }
 
 func (l *xrealLight) DevExecuteAndRead(input []string) {

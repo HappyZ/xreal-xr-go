@@ -24,6 +24,9 @@ type Device interface {
 
 	GetOptionsEnabled(options []string) []string
 
+	SetKeyEventHandler(handler KeyEventHandler)
+	SetProximityEventHandler(handler ProximityEventHandler)
+
 	// For development testing only
 	DevExecuteAndRead(intput []string)
 }
@@ -42,6 +45,46 @@ const (
 	DISPLAY_MODE_STEREO DisplayMode = "STEREO"
 	// HIGH_REFRESH_RATE sets the display at 1080p at 72Hz high refresh rate mode.
 	DISPLAY_MODE_HIGH_REFRESH_RATE DisplayMode = "HIGH_REFRESH_RATE"
+)
+
+type KeyEventHandler func(KeyEvent)
+type KeyEvent int
+
+func (e KeyEvent) String() string {
+	switch e {
+	case KEY_UP_PRESSED:
+		return "UP"
+	case KEY_DOWN_PRESSED:
+		return "DOWN"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+const (
+	KEY_UNKNOWN KeyEvent = iota
+	KEY_UP_PRESSED
+	KEY_DOWN_PRESSED
+)
+
+type ProximityEventHandler func(ProximityEvent)
+type ProximityEvent int
+
+func (e ProximityEvent) String() string {
+	switch e {
+	case PROXIMITY_NEAR:
+		return "NEAR"
+	case PROXIMITY_FAR:
+		return "FAR"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+const (
+	PROXIMITY_UKNOWN ProximityEvent = iota
+	PROXIMITY_NEAR
+	PROXIMITY_FAR
 )
 
 var SupportedDisplayMode = map[string]struct{}{
