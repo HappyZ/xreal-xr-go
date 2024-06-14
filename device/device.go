@@ -47,6 +47,11 @@ const (
 	DISPLAY_MODE_HIGH_REFRESH_RATE DisplayMode = "HIGH_REFRESH_RATE"
 )
 
+type DeviceHandlers struct {
+	KeyEventHandler       KeyEventHandler
+	ProximityEventHandler ProximityEventHandler
+}
+
 type KeyEventHandler func(KeyEvent)
 type KeyEvent int
 
