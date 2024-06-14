@@ -12,6 +12,8 @@ type Config struct {
 	Debug bool
 	// Do not validate firmware
 	SkipFirmwareCheck bool
+	// Immediately connect to a glass device at start
+	ConnectAtStart bool
 }
 
 var SupportedFirmwareVersion = map[string]map[string]struct{}{

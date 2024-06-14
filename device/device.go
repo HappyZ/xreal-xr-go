@@ -49,10 +49,14 @@ var SupportedDisplayMode = map[string]struct{}{
 	string(DISPLAY_MODE_HIGH_REFRESH_RATE): {},
 }
 
-func enumerateDevices(vid, pid uint16) ([]*hid.DeviceInfo, error) {
+func EnumerateDevices(vid, pid uint16) ([]*hid.DeviceInfo, error) {
 	var devices []*hid.DeviceInfo
+	uniquePaths := make(map[string]struct{})
 	err := hid.Enumerate(vid, pid, func(info *hid.DeviceInfo) error {
-		devices = append(devices, info)
+		if _, ok := uniquePaths[info.Path]; !ok {
+			uniquePaths[info.Path] = struct{}{}
+			devices = append(devices, info)
+		}
 		return nil
 	})
 	return devices, err

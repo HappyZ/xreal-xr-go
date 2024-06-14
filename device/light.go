@@ -16,11 +16,13 @@ import (
 )
 
 const (
-	readDeviceTimeout   = 5 * time.Millisecond
-	readPacketTimeout   = 1 * time.Second
-	readPacketFrequency = 1 * time.Millisecond
-	heartBeatTimeout    = 1 * time.Second
-	retryMaxAttempts    = 5
+	readDeviceTimeout   = 8 * time.Millisecond
+	readPacketFrequency = 10 * time.Millisecond
+
+	waitForPacketTimeout = 1 * time.Second
+	retryMaxAttempts     = 3
+
+	heartBeatTimeout = 500 * time.Millisecond
 )
 
 type Command struct {
@@ -419,7 +421,7 @@ func (l *xrealLight) Disconnect() error {
 }
 
 func (l *xrealLight) Connect() error {
-	devices, err := enumerateDevices(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID)
+	devices, err := EnumerateDevices(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID)
 	if err != nil {
 		return fmt.Errorf("failed to enumerate hid devices: %w", err)
 	}
@@ -464,7 +466,6 @@ func (l *xrealLight) Connect() error {
 }
 
 func (l *xrealLight) initialize() error {
-	l.queue = &list.List{}
 	l.packetResponseChannel = make(chan *Packet)
 
 	l.stopHeartBeatChannel = make(chan struct{})
@@ -611,7 +612,6 @@ func (l *xrealLight) readAndProcessPackets() error {
 		}
 
 		slog.Debug(fmt.Sprintf("got unhandled packet: %s", response.String()))
-		// l.queue.PushBack(response)
 	}
 
 	return nil
@@ -627,7 +627,7 @@ func (l *xrealLight) executeAndWaitForResponse(command *Packet) ([]byte, error) 
 			if (response.Command.Type == command.Command.Type+1) && (response.Command.ID == command.Command.ID) {
 				return response.Payload, nil
 			}
-		case <-time.After(readPacketTimeout):
+		case <-time.After(waitForPacketTimeout):
 			if retry < retryMaxAttempts-1 {
 				slog.Debug(fmt.Sprintf("timed out waiting for packet response for %s, retry", command.String()))
 				continue
