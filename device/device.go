@@ -1,6 +1,9 @@
 package device
 
 import (
+	"fmt"
+	"time"
+
 	hid "github.com/sstallion/go-hid"
 )
 
@@ -24,8 +27,11 @@ type Device interface {
 
 	GetOptionsEnabled(options []string) []string
 
+	SetAmbientLightEventHandler(handler AmbientLightEventHandler)
 	SetKeyEventHandler(handler KeyEventHandler)
+	SetMagnetometerEventHandler(handler MagnetometerEventHandler)
 	SetProximityEventHandler(handler ProximityEventHandler)
+	SetVSyncEventHandler(handler VSyncEventHandler)
 
 	// For development testing only
 	DevExecuteAndRead(intput []string)
@@ -48,12 +54,32 @@ const (
 )
 
 type DeviceHandlers struct {
-	KeyEventHandler       KeyEventHandler
-	ProximityEventHandler ProximityEventHandler
+	AmbientLightEventHandler AmbientLightEventHandler
+	KeyEventHandler          KeyEventHandler
+	MagnetometerEventHandler MagnetometerEventHandler
+	ProximityEventHandler    ProximityEventHandler
+	VSyncEventHandler        VSyncEventHandler
+}
+
+type AmbientLightEventHandler func(uint16)
+type VSyncEventHandler func(string)
+
+type MagnetometerEventHandler func(*MagnetometerVector)
+
+type MagnetometerVector struct {
+	// TODO(happyz): Parse X,Y,Z
+	X         int
+	Y         int
+	Z         int
+	Timestamp time.Time
+}
+
+func (mv MagnetometerVector) String() string {
+	return fmt.Sprintf("(x,y,z)=(%d, %d, %d) at %v", mv.X, mv.Y, mv.Z, mv.Timestamp)
 }
 
 type KeyEventHandler func(KeyEvent)
-type KeyEvent int
+type KeyEvent uint8
 
 func (e KeyEvent) String() string {
 	switch e {
@@ -73,7 +99,7 @@ const (
 )
 
 type ProximityEventHandler func(ProximityEvent)
-type ProximityEvent int
+type ProximityEvent uint8
 
 func (e ProximityEvent) String() string {
 	switch e {

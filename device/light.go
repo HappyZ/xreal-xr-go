@@ -3,6 +3,8 @@ package device
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,11 +264,46 @@ func (l *xrealLight) readAndProcessPackets() error {
 					l.deviceHandlers.ProximityEventHandler(PROXIMITY_UKNOWN)
 				}
 			} else if response.Command.Equals(&MCU_AMBIENT_LIGHT) {
-				slog.Info(fmt.Sprintf("Ambient Light: %s", string(response.Payload)))
+				if value, err := strconv.ParseUint(string(response.Payload), 10, 16); err != nil {
+					slog.Debug(fmt.Sprintf("Ambient light failed to parse: %s", string(response.Payload)))
+				} else {
+					l.deviceHandlers.AmbientLightEventHandler(uint16(value))
+				}
 			} else if response.Command.Equals(&MCU_VSYNC) {
-				// VSync has too many messages, cannot print
+				l.deviceHandlers.VSyncEventHandler(string(response.Payload))
 			} else if response.Command.Equals(&MCU_MAGNETOMETER) {
-				slog.Debug(fmt.Sprintf("Magnetometer: %s (at time %s)", string(response.Payload), response.DecodeTimestamp()))
+				reading := string(response.Payload)
+
+				xIdx := strings.Index(reading, "x")
+				yIdx := strings.Index(reading, "y")
+				zIdx := strings.Index(reading, "z")
+
+				x, err := strconv.Atoi(reading[xIdx+1 : yIdx])
+				if err != nil {
+					slog.Debug(fmt.Sprintf("failed to parse %s to integer", reading[xIdx+1:yIdx]))
+					continue
+				}
+
+				y, err := strconv.Atoi(reading[yIdx+1 : zIdx])
+				if err != nil {
+					slog.Debug(fmt.Sprintf("failed to parse %s to integer", reading[yIdx+1:zIdx]))
+					continue
+				}
+
+				z, err := strconv.Atoi(reading[zIdx+1:])
+				if err != nil {
+					slog.Debug(fmt.Sprintf("failed to parse %s to integer", reading[zIdx+1:]))
+					continue
+				}
+
+				l.deviceHandlers.MagnetometerEventHandler(
+					&MagnetometerVector{
+						X:         x,
+						Y:         y,
+						Z:         z,
+						Timestamp: response.DecodeTimestamp(),
+					},
+				)
 			} else {
 				slog.Debug(fmt.Sprintf("got unhandled MCU packet: %v %s", response.Command, string(response.Payload)))
 			}
@@ -420,12 +457,24 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 	return nil
 }
 
+func (l *xrealLight) SetAmbientLightEventHandler(handler AmbientLightEventHandler) {
+	l.deviceHandlers.AmbientLightEventHandler = handler
+}
+
 func (l *xrealLight) SetKeyEventHandler(handler KeyEventHandler) {
 	l.deviceHandlers.KeyEventHandler = handler
 }
 
+func (l *xrealLight) SetMagnetometerEventHandler(handler MagnetometerEventHandler) {
+	l.deviceHandlers.MagnetometerEventHandler = handler
+}
+
 func (l *xrealLight) SetProximityEventHandler(handler ProximityEventHandler) {
 	l.deviceHandlers.ProximityEventHandler = handler
+}
+
+func (l *xrealLight) SetVSyncEventHandler(handler VSyncEventHandler) {
+	l.deviceHandlers.VSyncEventHandler = handler
 }
 
 func (l *xrealLight) DevExecuteAndRead(input []string) {
@@ -459,11 +508,20 @@ func NewXREALLight(devicePath *string, serialNumber *string) Device {
 	}
 
 	l.deviceHandlers = DeviceHandlers{
+		AmbientLightEventHandler: func(value uint16) {
+			slog.Info(fmt.Sprintf("Ambient light: %d", value))
+		},
 		KeyEventHandler: func(key KeyEvent) {
 			slog.Info(fmt.Sprintf("Key pressed: %s", key.String()))
 		},
+		MagnetometerEventHandler: func(vector *MagnetometerVector) {
+			slog.Info(fmt.Sprintf("Magnetometer: %s", vector.String()))
+		},
 		ProximityEventHandler: func(proximity ProximityEvent) {
 			slog.Info(fmt.Sprintf("Proximity: %s", proximity.String()))
+		},
+		VSyncEventHandler: func(vsync string) {
+			slog.Info(fmt.Sprintf("VSync: %s", vsync))
 		},
 	}
 
