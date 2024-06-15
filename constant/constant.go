@@ -10,12 +10,6 @@ const (
 type Config struct {
 	// Enable verbose logging output
 	Debug bool
-	// Do not validate firmware
-	SkipFirmwareCheck bool
 	// Immediately connect to a glass device at start
 	ConnectAtStart bool
-}
-
-var SupportedFirmwareVersion = map[string]map[string]struct{}{
-	XREAL_LIGHT: {FIRMWARE_05_5_08_059: {}},
 }

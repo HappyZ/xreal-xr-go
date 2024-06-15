@@ -16,8 +16,8 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 		{
 			packet: &device.Packet{
 				Type:      device.PACKET_TYPE_COMMAND,
-				Command:   &device.CMD_GET_BRIGHTNESS_LEVEL,
-				Payload:   device.DUMMY_PAYLOAD,
+				Command:   device.GetFirmwareIndependentCommand(device.CMD_GET_BRIGHTNESS_LEVEL),
+				Payload:   []byte{' '},
 				Timestamp: []byte("18fd37a61db"), // epoch: 1717239964 (seconds) 123 (milliseconds)
 			},
 		},
@@ -42,6 +42,7 @@ func TestSerializeDeserializeCommandSuccessfully(t *testing.T) {
 
 		slog.Info(fmt.Sprintf("deserialized: %v\n", deserialized))
 
+		tc.packet.Command = &device.Command{Type: tc.packet.Command.Type, ID: tc.packet.Command.ID}
 		if !reflect.DeepEqual(tc.packet, deserialized) {
 			t.Errorf("expected: %v, got: %v", tc.packet, deserialized)
 		}

@@ -9,8 +9,6 @@ import (
 	"xreal-light-xr-go/crc"
 )
 
-var DUMMY_PAYLOAD = []byte{' '}
-
 type Packet struct {
 	Type      PacketType
 	Command   *Command
@@ -19,15 +17,20 @@ type Packet struct {
 	Message   string
 }
 
-// PacketType tells the type of the decoded Packet for Light communications
+// PacketType tells the type of the decoded Packet for Light glass communications
 type PacketType int
 
 const (
 	PACKET_TYPE_UNKNOWN PacketType = iota
+	// PACKET_TYPE_CRC_ERROR is a CRC Error packet which can be ignored
 	PACKET_TYPE_CRC_ERROR
+	// PACKET_TYPE_COMMAND is a command packet
 	PACKET_TYPE_COMMAND
+	// PACKET_TYPE_RESPONSE is a packet that responds to the command packet
 	PACKET_TYPE_RESPONSE
+	// PACKET_TYPE_MCU is a packet returned from MCU
 	PACKET_TYPE_MCU
+	// PACKET_TYPE_HEART_BEAT_RESPONSE is a packet that responds to the heart beat command packet (not always returned)
 	PACKET_TYPE_HEART_BEAT_RESPONSE
 )
 
@@ -153,21 +156,4 @@ func (pkt *Packet) Serialize() ([64]byte, error) {
 	copy(result[:], buf.Bytes())
 
 	return result, nil
-}
-
-func newCommandPacket(cmd *Command, payload ...[]byte) *Packet {
-	defaultPayload := DUMMY_PAYLOAD
-	if len(payload) > 0 {
-		defaultPayload = payload[0]
-	}
-	return &Packet{
-		Type:      PACKET_TYPE_COMMAND,
-		Command:   cmd,
-		Payload:   defaultPayload,
-		Timestamp: getTimestampNow(),
-	}
-}
-
-func getTimestampNow() []byte {
-	return []byte(fmt.Sprintf("%x", (time.Now().UnixMilli())))
 }

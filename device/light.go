@@ -39,7 +39,10 @@ type xrealLight struct {
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
-	// deviceHandlers contains callback funcs
+	// glassFirmware is obtained from mcuDevice and used to get the correct commands
+	glassFirmware string
+
+	// deviceHandlers contains callback funcs for the events from the glass device
 	deviceHandlers DeviceHandlers
 
 	// mutex for thread safety
@@ -137,6 +140,14 @@ func (l *xrealLight) initialize() error {
 	l.waitgroup.Add(1)
 	go l.readPacketsPeriodically()
 
+	// We must ensure we get the firmware version
+	for {
+		if firmwareVersion, err := l.getFirmwareVersion(); err == nil {
+			l.glassFirmware = firmwareVersion
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -149,7 +160,8 @@ func (l *xrealLight) sendHeartBeatPeriodically() {
 	for {
 		select {
 		case <-ticker.C:
-			if err := l.executeOnly(newCommandPacket(&CMD_HEART_BEAT)); err != nil {
+			packet := l.buildCommandPacket(CMD_HEART_BEAT)
+			if err := l.executeOnly(packet); err != nil {
 				slog.Debug(fmt.Sprintf("failed to send a heartbeat: %v", err))
 			}
 		case <-l.stopHeartBeatChannel:
@@ -206,9 +218,9 @@ func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
 // readAndProcessPackets sends a legit packet request to device and receives a set of packets to be processed.
 // This method should be called as frequently as possible to track the time of the packets more accurately.
 func (l *xrealLight) readAndProcessPackets() error {
-	commandPacket := newCommandPacket(&CMD_GET_NREAL_FW_STRING)
+	packet := l.buildCommandPacket(CMD_GET_NREAL_FW_STRING)
 	// we must send a packet to get all responses, which is a bit lame
-	if err := l.executeOnly(commandPacket); err != nil {
+	if err := l.executeOnly(packet); err != nil {
 		return err
 	}
 	for i := 0; i < 32; i++ {
@@ -229,7 +241,7 @@ func (l *xrealLight) readAndProcessPackets() error {
 			continue
 		}
 
-		if (response.Command.Type == commandPacket.Command.Type+1) && (response.Command.ID == commandPacket.Command.ID) {
+		if (response.Command.Type == packet.Command.Type+1) && (response.Command.ID == packet.Command.ID) {
 			// we ignore the legit response to our prior command as it's not useful for us
 			// but we stop here
 			return nil
@@ -243,7 +255,7 @@ func (l *xrealLight) readAndProcessPackets() error {
 
 		// handle MCU
 		if response.Type == PACKET_TYPE_MCU {
-			if response.Command.Equals(&MCU_KEY_PRESS) {
+			if response.Command.EqualsInstruction(MCU_EVENT_KEY_PRESS) {
 				switch string(response.Payload) {
 				case "UP":
 					l.deviceHandlers.KeyEventHandler(KEY_UP_PRESSED)
@@ -253,7 +265,7 @@ func (l *xrealLight) readAndProcessPackets() error {
 					slog.Debug(fmt.Sprintf("Key pressed unrecognized: %s", string(response.Payload)))
 					l.deviceHandlers.KeyEventHandler(KEY_UNKNOWN)
 				}
-			} else if response.Command.Equals(&MCU_PROXIMITY) {
+			} else if response.Command.EqualsInstruction(MCU_EVENT_PROXIMITY) {
 				switch string(response.Payload) {
 				case "far":
 					l.deviceHandlers.ProximityEventHandler(PROXIMITY_FAR)
@@ -263,15 +275,15 @@ func (l *xrealLight) readAndProcessPackets() error {
 					slog.Info(fmt.Sprintf("Proximity unrecognized: %s", string(response.Payload)))
 					l.deviceHandlers.ProximityEventHandler(PROXIMITY_UKNOWN)
 				}
-			} else if response.Command.Equals(&MCU_AMBIENT_LIGHT) {
+			} else if response.Command.EqualsInstruction(MCU_EVENT_AMBIENT_LIGHT) {
 				if value, err := strconv.ParseUint(string(response.Payload), 10, 16); err != nil {
 					slog.Debug(fmt.Sprintf("Ambient light failed to parse: %s", string(response.Payload)))
 				} else {
 					l.deviceHandlers.AmbientLightEventHandler(uint16(value))
 				}
-			} else if response.Command.Equals(&MCU_VSYNC) {
+			} else if response.Command.EqualsInstruction(MCU_EVENT_VSYNC) {
 				l.deviceHandlers.VSyncEventHandler(string(response.Payload))
-			} else if response.Command.Equals(&MCU_MAGNETOMETER) {
+			} else if response.Command.EqualsInstruction(MCU_EVENT_MAGNETOMETER) {
 				reading := string(response.Payload)
 
 				xIdx := strings.Index(reading, "x")
@@ -339,17 +351,26 @@ func (l *xrealLight) executeAndWaitForResponse(command *Packet) ([]byte, error) 
 }
 
 func (l *xrealLight) GetSerial() (string, error) {
-	response, err := l.executeAndWaitForResponse(newCommandPacket(&CMD_GET_SERIAL_NUMBER))
+	packet := l.buildCommandPacket(CMD_GET_SERIAL_NUMBER)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
-		return "", fmt.Errorf("failed to %s: %w", CMD_GET_SERIAL_NUMBER.String(), err)
+		return "", fmt.Errorf("failed to %s: %w", packet.String(), err)
 	}
 	return string(response), nil
 }
 
 func (l *xrealLight) GetFirmwareVersion() (string, error) {
-	response, err := l.executeAndWaitForResponse(newCommandPacket(&CMD_GET_FIRMWARE_VERSION_0))
+	if l.mcuDevice == nil {
+		return "", fmt.Errorf("glass device is not connected yet")
+	}
+	return l.glassFirmware, nil
+}
+
+func (l *xrealLight) getFirmwareVersion() (string, error) {
+	packet := l.buildCommandPacket(CMD_GET_FIRMWARE_VERSION)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
-		return "", fmt.Errorf("failed to %s: %w", CMD_GET_FIRMWARE_VERSION_0.String(), err)
+		return "", fmt.Errorf("failed to %s: %w", packet.String(), err)
 	}
 	return string(response), nil
 }
@@ -362,13 +383,13 @@ func (l *xrealLight) GetOptionsEnabled(options []string) []string {
 
 		switch option {
 		case "ambientlight":
-			packet = newCommandPacket(&CMD_GET_AMBIENT_LIGHT_ENABLED)
+			packet = l.buildCommandPacket(CMD_GET_AMBIENT_LIGHT_ENABLED)
 		case "vsync":
-			packet = newCommandPacket(&CMD_GET_ENABLE_VSYNC_ENABLED)
+			packet = l.buildCommandPacket(CMD_GET_VSYNC_ENABLED)
 		case "activated":
-			packet = newCommandPacket(&CMD_GET_ACTIVATION)
+			packet = l.buildCommandPacket(CMD_GET_GLASS_ACTIVATED)
 		case "magnetometer":
-			packet = newCommandPacket(&CMD_GET_MAGNETOMETER_ENABLED)
+			packet = l.buildCommandPacket(CMD_GET_MAGNETOMETER_ENABLED)
 		default:
 		}
 
@@ -389,9 +410,10 @@ func (l *xrealLight) GetOptionsEnabled(options []string) []string {
 }
 
 func (l *xrealLight) GetDisplayMode() (DisplayMode, error) {
-	response, err := l.executeAndWaitForResponse(newCommandPacket(&CMD_GET_DISPLAY_MODE))
+	packet := l.buildCommandPacket(CMD_GET_DISPLAY_MODE)
+	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
-		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to %s: %w", CMD_GET_DISPLAY_MODE.String(), err)
+		return DISPLAY_MODE_UNKNOWN, fmt.Errorf("failed to %s: %w", packet.String(), err)
 	}
 	if response[0] == '1' {
 		// "1&2D_1080"
@@ -423,21 +445,21 @@ func (l *xrealLight) SetDisplayMode(mode DisplayMode) error {
 		return fmt.Errorf("unknown display mode: %v", mode)
 	}
 
-	packet := newCommandPacket(&CMD_SET_DISPLAY_MODE, []byte{displayMode})
+	packet := l.buildCommandPacket(CMD_SET_DISPLAY_MODE, []byte{displayMode})
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
-		return fmt.Errorf("failed to %s: %w", CMD_SET_DISPLAY_MODE.String(), err)
+		return fmt.Errorf("failed to %s: %w", packet.String(), err)
 	}
 	if response[0] != displayMode {
-		return fmt.Errorf("failed to %s: want %d got %d", CMD_SET_DISPLAY_MODE.String(), displayMode, response[0])
+		return fmt.Errorf("failed to %s: want %d got %d", packet.String(), displayMode, response[0])
 	}
 	return nil
 }
 
 func (l *xrealLight) GetBrightnessLevel() (string, error) {
-	packet := newCommandPacket(&CMD_GET_BRIGHTNESS_LEVEL)
+	packet := l.buildCommandPacket(CMD_GET_BRIGHTNESS_LEVEL)
 	if response, err := l.executeAndWaitForResponse(packet); err != nil {
-		return "unknown", fmt.Errorf("failed to %s: %w", CMD_GET_BRIGHTNESS_LEVEL.String(), err)
+		return "unknown", fmt.Errorf("failed to %s: %w", packet.String(), err)
 	} else {
 		return string(response), nil
 	}
@@ -448,7 +470,7 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 		return fmt.Errorf("invalid level %s, must be single digit 0-7", level)
 	}
 
-	packet := newCommandPacket(&CMD_SET_BRIGHTNESS_LEVEL_0, []byte(level))
+	packet := l.buildCommandPacket(CMD_SET_BRIGHTNESS_LEVEL, []byte(level))
 	if response, err := l.executeAndWaitForResponse(packet); err != nil {
 		return fmt.Errorf("failed to set brightness level: %w", err)
 	} else if response[0] != level[0] {
@@ -488,14 +510,35 @@ func (l *xrealLight) DevExecuteAndRead(input []string) {
 		return
 	}
 
-	command := Command{Type: input[0][0], ID: input[1][0]}
-	packet := newCommandPacket(&command, []byte(input[2]))
+	packet := &Packet{
+		Type:      PACKET_TYPE_COMMAND,
+		Command:   &Command{Type: input[0][0], ID: input[1][0]},
+		Payload:   []byte(input[2]),
+		Timestamp: getTimestampNow(),
+	}
 	response, err := l.executeAndWaitForResponse(packet)
 	if err != nil {
-		slog.Error(fmt.Sprintf("%v : '%s' failed: %v", command, string(response), err))
+		slog.Error(fmt.Sprintf("%v : '%s' failed: %v", packet.Command, string(response), err))
 		return
 	}
-	slog.Info(fmt.Sprintf("%v : '%s'", command, string(response)))
+	slog.Info(fmt.Sprintf("%v : '%s'", packet.Command, string(response)))
+}
+
+func (l *xrealLight) buildCommandPacket(instruction CommandInstruction, payload ...[]byte) *Packet {
+	defaultPayload := []byte{' '}
+	if len(payload) > 0 {
+		defaultPayload = payload[0]
+	}
+	return &Packet{
+		Type:      PACKET_TYPE_COMMAND,
+		Command:   l.getCommand(instruction),
+		Payload:   defaultPayload,
+		Timestamp: getTimestampNow(),
+	}
+}
+
+func getTimestampNow() []byte {
+	return []byte(fmt.Sprintf("%x", (time.Now().UnixMilli())))
 }
 
 func NewXREALLight(devicePath *string, serialNumber *string) Device {

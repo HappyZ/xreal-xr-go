@@ -18,7 +18,6 @@ func parseFlags() constant.Config {
 
 	flag.BoolVar(&config.ConnectAtStart, "connect-at-start", false, "if set, connect glass right away")
 	flag.BoolVar(&config.Debug, "debug", false, "if set, enable verbose logging output")
-	flag.BoolVar(&config.SkipFirmwareCheck, "skip-firmware-check", false, "if set to true, we do not validate firmware")
 
 	flag.Parse()
 
@@ -44,7 +43,7 @@ func main() {
 	}()
 
 	if config.ConnectAtStart {
-		glassDevice = handleDeviceConnection("connect any", config)
+		glassDevice = handleDeviceConnection("connect any")
 		if glassDevice == nil {
 			slog.Warn("device not connected")
 		}
@@ -78,7 +77,7 @@ func main() {
 
 		switch {
 		case strings.HasPrefix(input, "connect"):
-			glassDevice = handleDeviceConnection(input, config)
+			glassDevice = handleDeviceConnection(input)
 			if glassDevice == nil {
 				slog.Warn("device not connected")
 			}
@@ -120,7 +119,7 @@ func main() {
 	}
 }
 
-func handleDeviceConnection(input string, config constant.Config) device.Device {
+func handleDeviceConnection(input string) device.Device {
 	parts := strings.Split(input, " ")
 	if len(parts) != 2 {
 		slog.Error(fmt.Sprintf("invalid command format: connect len(%v)=%d. Use 'connect <any/serial>'", parts, len(parts)))
@@ -140,19 +139,6 @@ func handleDeviceConnection(input string, config constant.Config) device.Device 
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to connect: %v", err))
 		return nil
-	}
-
-	if firmware, err := glassDevice.GetFirmwareVersion(); err != nil {
-		slog.Error(fmt.Sprintf("failed to get firmware version from device: %v", err))
-		glassDevice.Disconnect()
-		return nil
-	} else if _, ok := constant.SupportedFirmwareVersion[glassDevice.Name()][firmware]; !config.SkipFirmwareCheck && !ok {
-		slog.Error(fmt.Sprintf("your device has a firmware that is not validated: validated ones include %v", constant.SupportedFirmwareVersion))
-
-		if !confirmToContinue() {
-			glassDevice.Disconnect()
-			return nil
-		}
 	}
 	return glassDevice
 }
