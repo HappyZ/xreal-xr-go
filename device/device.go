@@ -25,12 +25,14 @@ type Device interface {
 	GetDisplayMode() (DisplayMode, error)
 	SetDisplayMode(mode DisplayMode) error
 
+	EnableEventReporting(event CommandInstruction, enabled string) error
 	GetOptionsEnabled(options []string) []string
 
 	SetAmbientLightEventHandler(handler AmbientLightEventHandler)
 	SetKeyEventHandler(handler KeyEventHandler)
 	SetMagnetometerEventHandler(handler MagnetometerEventHandler)
 	SetProximityEventHandler(handler ProximityEventHandler)
+	SetTemperatureEventHandler(handler TemperatureEventHandlder)
 	SetVSyncEventHandler(handler VSyncEventHandler)
 
 	// For development testing only
@@ -58,11 +60,13 @@ type DeviceHandlers struct {
 	KeyEventHandler          KeyEventHandler
 	MagnetometerEventHandler MagnetometerEventHandler
 	ProximityEventHandler    ProximityEventHandler
+	TemperatureEventHandlder TemperatureEventHandlder
 	VSyncEventHandler        VSyncEventHandler
 }
 
 type AmbientLightEventHandler func(uint16)
 type VSyncEventHandler func(string)
+type TemperatureEventHandlder func(string)
 
 type MagnetometerEventHandler func(*MagnetometerVector)
 

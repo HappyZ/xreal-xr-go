@@ -42,6 +42,8 @@ const (
 	MCU_EVENT_KEY_PRESS
 	MCU_EVENT_MAGNETOMETER
 	MCU_EVENT_PROXIMITY
+	MCU_EVENT_TEMPERATURE_A
+	MCU_EVENT_TEMPERATURE_B
 	MCU_EVENT_VSYNC
 )
 
@@ -124,6 +126,8 @@ func (cmd Command) String() string {
 		return "magnetometer report event"
 	case MCU_EVENT_PROXIMITY:
 		return "proximity report event"
+	case MCU_EVENT_TEMPERATURE_A, MCU_EVENT_TEMPERATURE_B:
+		return "temperature report event"
 	case MCU_EVENT_VSYNC:
 		return "v-sync report event"
 	default:
@@ -187,6 +191,10 @@ func GetFirmwareIndependentCommand(instruction CommandInstruction) *Command {
 		command = &Command{Type: 0x35, ID: 0x4d}
 	case MCU_EVENT_PROXIMITY:
 		command = &Command{Type: 0x35, ID: 0x50}
+	case MCU_EVENT_TEMPERATURE_A: // needs further investigations
+		command = &Command{Type: 0x35, ID: 0x52}
+	case MCU_EVENT_TEMPERATURE_B: // needs further investigations
+		command = &Command{Type: 0x35, ID: 0x54}
 	case MCU_EVENT_VSYNC:
 		command = &Command{Type: 0x35, ID: 0x53}
 	default:

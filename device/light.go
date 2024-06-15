@@ -181,6 +181,9 @@ func (l *xrealLight) readPacketsPeriodically() {
 		select {
 		case <-ticker.C:
 			if err := l.readAndProcessPackets(); err != nil {
+				if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "system call") {
+					continue
+				}
 				slog.Debug(fmt.Sprintf("readAndProcessPackets(): %v", err))
 			}
 		case <-l.stopReadPacketsChannel:
@@ -267,7 +270,7 @@ func (l *xrealLight) readAndProcessPackets() error {
 				}
 			} else if response.Command.EqualsInstruction(MCU_EVENT_PROXIMITY) {
 				switch string(response.Payload) {
-				case "far":
+				case "away":
 					l.deviceHandlers.ProximityEventHandler(PROXIMITY_FAR)
 				case "near":
 					l.deviceHandlers.ProximityEventHandler(PROXIMITY_NEAR)
@@ -283,6 +286,8 @@ func (l *xrealLight) readAndProcessPackets() error {
 				}
 			} else if response.Command.EqualsInstruction(MCU_EVENT_VSYNC) {
 				l.deviceHandlers.VSyncEventHandler(string(response.Payload))
+			} else if response.Command.EqualsInstruction(MCU_EVENT_TEMPERATURE_A) || response.Command.EqualsInstruction(MCU_EVENT_TEMPERATURE_B) {
+				l.deviceHandlers.TemperatureEventHandlder(string(response.Payload))
 			} else if response.Command.EqualsInstruction(MCU_EVENT_MAGNETOMETER) {
 				reading := string(response.Payload)
 
@@ -390,6 +395,8 @@ func (l *xrealLight) GetOptionsEnabled(options []string) []string {
 			packet = l.buildCommandPacket(CMD_GET_GLASS_ACTIVATED)
 		case "magnetometer":
 			packet = l.buildCommandPacket(CMD_GET_MAGNETOMETER_ENABLED)
+		case "temperature":
+			packet = l.buildCommandPacket(CMD_GET_TEMPERATURE_ENABLED)
 		default:
 		}
 
@@ -474,7 +481,17 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 	if response, err := l.executeAndWaitForResponse(packet); err != nil {
 		return fmt.Errorf("failed to set brightness level: %w", err)
 	} else if response[0] != level[0] {
-		return fmt.Errorf("failed to set brightness mode: want %d got %s", level[0], string(response))
+		return fmt.Errorf("failed to set brightness mode: want %s got %s", level, string(response))
+	}
+	return nil
+}
+
+func (l *xrealLight) EnableEventReporting(instruction CommandInstruction, enabled string) error {
+	packet := l.buildCommandPacket(instruction, []byte(enabled))
+	if response, err := l.executeAndWaitForResponse(packet); err != nil {
+		return fmt.Errorf("failed to set event reporting: %w", err)
+	} else if response[0] != enabled[0] {
+		return fmt.Errorf("failed to set event reporting: want %s got %s", enabled, string(response))
 	}
 	return nil
 }
@@ -493,6 +510,10 @@ func (l *xrealLight) SetMagnetometerEventHandler(handler MagnetometerEventHandle
 
 func (l *xrealLight) SetProximityEventHandler(handler ProximityEventHandler) {
 	l.deviceHandlers.ProximityEventHandler = handler
+}
+
+func (l *xrealLight) SetTemperatureEventHandler(handler TemperatureEventHandlder) {
+	l.deviceHandlers.TemperatureEventHandlder = handler
 }
 
 func (l *xrealLight) SetVSyncEventHandler(handler VSyncEventHandler) {
@@ -563,8 +584,12 @@ func NewXREALLight(devicePath *string, serialNumber *string) Device {
 		ProximityEventHandler: func(proximity ProximityEvent) {
 			slog.Info(fmt.Sprintf("Proximity: %s", proximity.String()))
 		},
-		VSyncEventHandler: func(vsync string) {
-			slog.Info(fmt.Sprintf("VSync: %s", vsync))
+		TemperatureEventHandlder: func(value string) {
+			slog.Info(fmt.Sprintf("Temperature: %s", value))
+		},
+		VSyncEventHandler: func(value string) {
+			// too many, removed log printing
+			// slog.Info(fmt.Sprintf("VSync: %s", value))
 		},
 	}
 

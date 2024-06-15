@@ -216,12 +216,32 @@ func handleSetCommand(d device.Device, input string) {
 			slog.Error("empty brightness level input, please specify a number")
 			return
 		}
-		err := d.SetBrightnessLevel(args[0])
-		if err != nil {
+		if err := d.SetBrightnessLevel(args[0]); err != nil {
 			slog.Error(fmt.Sprintf("failed to set brightness level: %v", err))
 			return
 		}
 		slog.Info("Display mode set successfully")
+	case "vsync", "ambientlight", "magnetometer", "temperature":
+		if len(args) == 0 || (args[0] != "0" && args[0] != "1") {
+			slog.Error("empty input, please specify 0 (disable) or 1 (enable)")
+			return
+		}
+		var err error
+		switch command {
+		case "vsync":
+			err = d.EnableEventReporting(device.CMD_ENABLE_VSYNC, args[0])
+		case "ambientlight":
+			err = d.EnableEventReporting(device.CMD_ENABLE_AMBIENT_LIGHT, args[0])
+		case "magnetometer":
+			err = d.EnableEventReporting(device.CMD_ENABLE_MAGNETOMETER, args[0])
+		case "temperature":
+			err = d.EnableEventReporting(device.CMD_ENABLE_TEMPERATURE, args[0])
+		}
+		if err != nil {
+			slog.Error(fmt.Sprintf("failed to set %s event: %v", command, err))
+			return
+		}
+		slog.Info(fmt.Sprintf("%s event reporting set successfully", command))
 	default:
 		slog.Error("unknown command")
 	}
