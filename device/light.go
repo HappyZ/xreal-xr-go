@@ -148,6 +148,14 @@ func (l *xrealLight) initialize() error {
 		}
 	}
 
+	// ensure glass is activated
+	packet := l.buildCommandPacket(CMD_SET_GLASS_ACTIVATION, []byte("1"))
+	for {
+		if _, err := l.executeAndWaitForResponse(packet); err == nil {
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -588,8 +596,7 @@ func NewXREALLight(devicePath *string, serialNumber *string) Device {
 			slog.Info(fmt.Sprintf("Temperature: %s", value))
 		},
 		VSyncEventHandler: func(value string) {
-			// too many, removed log printing
-			// slog.Info(fmt.Sprintf("VSync: %s", value))
+			slog.Info(fmt.Sprintf("VSync: %s", value))
 		},
 	}
 
