@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"strings"
+	"time"
 
 	"xreal-light-xr-go/constant"
 	"xreal-light-xr-go/device"
@@ -16,8 +17,8 @@ import (
 func parseFlags() constant.Config {
 	var config constant.Config
 
-	flag.BoolVar(&config.ConnectAtStart, "connect-at-start", false, "if set, connect glass right away")
-	flag.BoolVar(&config.Debug, "debug", false, "if set, enable verbose logging output")
+	flag.BoolVar(&config.AutoConnect, "auto", false, "if set, connect the first attached glass automatically")
+	flag.BoolVar(&config.Debug, "debug", false, "if set, enable debug logging output")
 
 	flag.Parse()
 
@@ -25,6 +26,9 @@ func parseFlags() constant.Config {
 }
 
 func main() {
+	// Following mainly used for debugging/development purposes.
+	// Intention is to build an interface to build against and never need to use interactive command lines.
+
 	config := parseFlags()
 
 	log.SetFlags(log.Ldate | log.Lmicroseconds)
@@ -42,11 +46,8 @@ func main() {
 		}
 	}()
 
-	if config.ConnectAtStart {
-		glassDevice = handleDeviceConnection("connect any")
-		if glassDevice == nil {
-			slog.Warn("device not connected")
-		}
+	if config.AutoConnect {
+		glassDevice = waitAndConnectGlass()
 	}
 
 	line := liner.NewLiner()
@@ -107,7 +108,7 @@ func main() {
 					continue
 				}
 				for _, info := range devices {
-					slog.Info(fmt.Sprintf("- path: %s - serialNumber: %s", info.Path, info.SerialNbr))
+					slog.Info(fmt.Sprintf("- path: %s - serialNumber: %s - vid: %d - pid: %d", info.Path, info.SerialNbr, info.VendorID, info.ProductID))
 				}
 				continue
 			}
@@ -116,6 +117,18 @@ func main() {
 			}
 			slog.Error("unknown command")
 		}
+	}
+}
+
+func waitAndConnectGlass() device.Device {
+	for {
+		glassDevice := handleDeviceConnection("connect any")
+		if glassDevice == nil {
+			slog.Info("retry in 10s...")
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		return glassDevice
 	}
 }
 
@@ -146,12 +159,11 @@ func handleDeviceConnection(input string) device.Device {
 func handleGetCommand(d device.Device, input string) {
 	parts := strings.Split(input, " ")
 	if len(parts) < 2 {
-		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'get <command> <optional:args>'", parts, len(parts)))
+		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'get <command>'", parts, len(parts)))
 		return
 	}
 
 	command := parts[1]
-	args := parts[2:]
 
 	switch command {
 	case "serial":
@@ -175,11 +187,6 @@ func handleGetCommand(d device.Device, input string) {
 			return
 		}
 		slog.Info(fmt.Sprintf("Brightness Level: %s", brightness))
-	case "options":
-		results := d.GetOptionsEnabled(args)
-		for i, result := range results {
-			slog.Info(fmt.Sprintf("%s: %s", args[i], result))
-		}
 	default:
 		slog.Error("unknown command")
 	}

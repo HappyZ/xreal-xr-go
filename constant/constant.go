@@ -8,8 +8,8 @@ const (
 
 // Config holds configuration options for xrealxr
 type Config struct {
-	// Enable verbose logging output
+	// Enables debug logging output
 	Debug bool
-	// Immediately connect to a glass device at start
-	ConnectAtStart bool
+	// Immediately tries connect to a glass device at start
+	AutoConnect bool
 }

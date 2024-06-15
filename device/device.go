@@ -26,7 +26,6 @@ type Device interface {
 	SetDisplayMode(mode DisplayMode) error
 
 	EnableEventReporting(event CommandInstruction, enabled string) error
-	GetOptionsEnabled(options []string) []string
 
 	SetAmbientLightEventHandler(handler AmbientLightEventHandler)
 	SetKeyEventHandler(handler KeyEventHandler)

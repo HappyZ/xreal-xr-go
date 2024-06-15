@@ -207,7 +207,7 @@ func GetFirmwareIndependentCommand(instruction CommandInstruction) *Command {
 	return command
 }
 
-func (l *xrealLight) getCommand(instruction CommandInstruction) *Command {
+func (l *xrealLightMCU) getCommand(instruction CommandInstruction) *Command {
 	var command *Command
 
 	command = GetFirmwareIndependentCommand(instruction)
@@ -216,7 +216,7 @@ func (l *xrealLight) getCommand(instruction CommandInstruction) *Command {
 	}
 
 	// the following is known to be firmware dependent
-	firmwareVersion, _ := l.GetFirmwareVersion()
+	firmwareVersion := l.glassFirmware
 	switch instruction {
 	case CMD_GET_DISPLAY_HDCP: // hardcoded "ELLA2_1224_HDCP"
 		switch firmwareVersion {
