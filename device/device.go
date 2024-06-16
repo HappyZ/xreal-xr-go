@@ -141,4 +141,8 @@ func EnumerateDevices(vid, pid uint16) ([]*hid.DeviceInfo, error) {
 	return devices, err
 }
 
+func getTimestampNow() []byte {
+	return []byte(fmt.Sprintf("%x", (time.Now().UnixMilli())))
+}
+
 // TODO(happyz): Adds hotplug detection once https://github.com/libusb/hidapi/pull/674 is resolved.

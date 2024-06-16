@@ -84,7 +84,12 @@ func (l *xrealLight) SetBrightnessLevel(level string) error {
 }
 
 func (l *xrealLight) EnableEventReporting(instruction CommandInstruction, enabled string) error {
-	return l.mcu.enableEventReporting(instruction, enabled)
+	switch instruction {
+	case OV580_ENABLE_IMU_STREAM:
+		return l.ov580.enableEventReporting(instruction, enabled)
+	default:
+		return l.mcu.enableEventReporting(instruction, enabled)
+	}
 }
 
 func (l *xrealLight) SetAmbientLightEventHandler(handler AmbientLightEventHandler) {
@@ -146,7 +151,9 @@ func NewXREALLight(mcuDevicePath *string, ov580DevicePath *string) Device {
 	}
 
 	l.ov580 = &xrealLightOV580{
-		devicePath: ov580DevicePath,
+		devicePath:             ov580DevicePath,
+		commandResponseChannel: make(chan []byte),
+		stopReadDataChannel:    make(chan struct{}),
 	}
 
 	return &l

@@ -140,7 +140,7 @@ func (l *xrealLightMCU) sendHeartBeatPeriodically() {
 	}
 }
 
-// readPacketsPeriodically is a goroutine method to read info from XREAL Light HID device
+// readPacketsPeriodically is a goroutine method to read info from XREAL Light MCU HID device
 func (l *xrealLightMCU) readPacketsPeriodically() {
 	defer l.waitgroup.Done()
 
@@ -151,7 +151,7 @@ func (l *xrealLightMCU) readPacketsPeriodically() {
 		select {
 		case <-ticker.C:
 			if err := l.readAndProcessPackets(); err != nil {
-				if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "system call") {
+				if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "system call") {
 					continue
 				}
 				slog.Debug(fmt.Sprintf("readAndProcessPackets(): %v", err))
@@ -181,17 +181,6 @@ func (l *xrealLightMCU) executeOnly(command *Packet) error {
 	return nil
 }
 
-func read(device *hid.Device, timeout time.Duration) ([64]byte, error) {
-	var buffer [64]byte
-
-	_, err := device.ReadWithTimeout(buffer[:], timeout)
-	if err != nil {
-		return buffer, fmt.Errorf("failed to read from device %v: %w", device, err)
-	}
-
-	return buffer, nil
-}
-
 // readAndProcessPackets sends a legit packet request to device and receives a set of packets to be processed.
 // This method should be called as frequently as possible to track the time of the packets more accurately.
 func (l *xrealLightMCU) readAndProcessPackets() error {
@@ -201,9 +190,10 @@ func (l *xrealLightMCU) readAndProcessPackets() error {
 		return err
 	}
 	for i := 0; i < 32; i++ {
-		buffer, err := read(l.device, readDeviceTimeout)
+		var buffer [64]byte
+		_, err := l.device.ReadWithTimeout(buffer[:], readDeviceTimeout)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read from device %v: %w", l.device, err)
 		}
 
 		response := &Packet{}
@@ -477,7 +467,4 @@ func (l *xrealLightMCU) devExecuteAndRead(input []string) {
 		return
 	}
 	slog.Info(fmt.Sprintf("%v : '%s'", packet.Command, string(response)))
-}
-func getTimestampNow() []byte {
-	return []byte(fmt.Sprintf("%x", (time.Now().UnixMilli())))
 }
