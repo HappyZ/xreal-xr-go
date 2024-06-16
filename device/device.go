@@ -61,6 +61,7 @@ type DeviceHandlers struct {
 	ProximityEventHandler    ProximityEventHandler
 	TemperatureEventHandlder TemperatureEventHandlder
 	VSyncEventHandler        VSyncEventHandler
+	IMUEventHandler          IMUEventHandler
 }
 
 type AmbientLightEventHandler func(uint16)
@@ -120,6 +121,38 @@ const (
 	PROXIMITY_NEAR
 	PROXIMITY_FAR
 )
+
+type IMUEventHandler func(*IMUEvent)
+type IMUEvent struct {
+	Accelerometer *AccelerometerVector
+	Gyroscope     *GyroscopeVector
+	// TimeSinceBoot is in miliseconds
+	TimeSinceBoot uint64
+}
+
+func (imu IMUEvent) String() string {
+	return fmt.Sprintf("accel: %s, gyro: %s, at %d ms since boot", imu.Accelerometer.String(), imu.Gyroscope.String(), imu.TimeSinceBoot)
+}
+
+type AccelerometerVector struct {
+	X float32
+	Y float32
+	Z float32
+}
+
+func (accel AccelerometerVector) String() string {
+	return fmt.Sprintf("(x,y,z)=(%f, %f, %f)", accel.X, accel.Y, accel.Z)
+}
+
+type GyroscopeVector struct {
+	X float32
+	Y float32
+	Z float32
+}
+
+func (gyro GyroscopeVector) String() string {
+	return fmt.Sprintf("(x,y,z)=(%f, %f, %f)", gyro.X, gyro.Y, gyro.Z)
+}
 
 var SupportedDisplayMode = map[string]struct{}{
 	string(DISPLAY_MODE_SAME_ON_BOTH):      {},

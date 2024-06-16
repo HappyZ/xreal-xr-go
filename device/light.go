@@ -155,7 +155,12 @@ func NewXREALLight(mcuDevicePath *string, ov580DevicePath *string) Device {
 	}
 
 	l.ov580 = &xrealLightOV580{
-		devicePath:             ov580DevicePath,
+		devicePath: ov580DevicePath,
+		deviceHandlers: &DeviceHandlers{
+			IMUEventHandler: func(imu *IMUEvent) {
+				slog.Info(fmt.Sprintf("IMU: %s", imu.String()))
+			},
+		},
 		commandResponseChannel: make(chan []byte),
 		stopReadDataChannel:    make(chan struct{}),
 	}

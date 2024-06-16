@@ -47,6 +47,8 @@ const (
 	MCU_EVENT_VSYNC
 
 	OV580_ENABLE_IMU_STREAM
+	OV580_GET_CALIBRATION_FILE_LENGTH
+	OV580_GET_CALIBRATION_FILE_PART
 )
 
 type Command struct {
@@ -134,6 +136,10 @@ func (cmd Command) String() string {
 		return "v-sync report event"
 	case OV580_ENABLE_IMU_STREAM:
 		return "(ov580) enable IMU sensor stream reporting"
+	case OV580_GET_CALIBRATION_FILE_LENGTH:
+		return "(ov580) get calibration file length before reading it"
+	case OV580_GET_CALIBRATION_FILE_PART:
+		return "(ov580) read the calibration file part"
 	default:
 		return "unknown / no function"
 	}
@@ -203,6 +209,10 @@ func GetFirmwareIndependentCommand(instruction CommandInstruction) *Command {
 		command = &Command{Type: 0x35, ID: 0x53}
 	case OV580_ENABLE_IMU_STREAM:
 		command = &Command{Type: 0x02, ID: 0x19}
+	case OV580_GET_CALIBRATION_FILE_LENGTH:
+		command = &Command{Type: 0x02, ID: 0x14}
+	case OV580_GET_CALIBRATION_FILE_PART: // only parts returned so need to run multiple times
+		command = &Command{Type: 0x02, ID: 0x15}
 	default:
 	}
 

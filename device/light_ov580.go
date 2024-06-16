@@ -1,9 +1,13 @@
 package device
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -12,21 +16,29 @@ import (
 )
 
 const (
-	// XREAL Light Camera and IMU
+	// XREAL Light SLAM Camera and IMU
 	XREAL_LIGHT_OV580_VID = uint16(0x05a9)
 	XREAL_LIGHT_OV580_PID = uint16(0x0680)
 )
 
 type xrealLightOV580 struct {
+	initialized bool
+
 	device *hid.Device
 	// serialNumber is optional and can be nil if not provided
 	serialNumber *string
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
+	// deviceHandlers contains callback funcs for the events from the glass device
+	deviceHandlers *DeviceHandlers
+
+	// bias values for accelerometer and gyro
+	accelerometerBias *AccelerometerVector
+	gyroscopeBias     *GyroscopeVector
+
 	// mutex for thread safety
 	mutex sync.Mutex
-
 	// channel to signal a command gets a response
 	commandResponseChannel chan []byte
 	// waitgroup to wait for multiple goroutines to stop
@@ -53,35 +65,123 @@ func (l *xrealLightOV580) connectAndInitialize() error {
 		return fmt.Errorf(message)
 	}
 
-	var ov580Device *hid.Device
-
 	if l.devicePath != nil {
 		if device, err := hid.OpenPath(*l.devicePath); err != nil {
 			return fmt.Errorf("failed to open the device path %s: %w", *l.devicePath, err)
 		} else {
-			ov580Device = device
+			l.device = device
 		}
 	} else if l.serialNumber != nil {
 		if device, err := hid.Open(XREAL_LIGHT_OV580_VID, XREAL_LIGHT_OV580_PID, *l.serialNumber); err != nil {
 			return fmt.Errorf("failed to open the device with serial number %s: %w", *l.serialNumber, err)
 		} else {
-			ov580Device = device
+			l.device = device
 		}
 	} else {
 		if device, err := hid.OpenFirst(XREAL_LIGHT_OV580_VID, XREAL_LIGHT_OV580_PID); err != nil {
 			return fmt.Errorf("failed to open the first hid device for XREAL Light OV580: %w", err)
 		} else {
-			ov580Device = device
+			l.device = device
 		}
 	}
 
-	l.device = ov580Device
+	// backfill missing data
+	if info, err := l.device.GetDeviceInfo(); err == nil {
+		l.devicePath = &info.Path
+		l.serialNumber = &info.SerialNbr
+	}
+
 	return l.initialize()
 }
 
 func (l *xrealLightOV580) initialize() error {
 	l.waitgroup.Add(1)
 	go l.readPacketsPeriodically()
+
+	// ensure we get calibration file
+	for {
+		if err := l.readAndParseCalibrationConfigs(); err == nil {
+			break
+		} else {
+			slog.Error(fmt.Sprintf("readAndParseCalibrationConfigs() failed, retrying: %v", err))
+		}
+	}
+
+	l.initialized = true
+	return nil
+}
+
+func (l *xrealLightOV580) readAndParseCalibrationConfigs() error {
+	// disable IMU stream first to reduce noise
+	if err := l.enableEventReporting(OV580_ENABLE_IMU_STREAM, "0"); err != nil {
+		return err
+	}
+
+	command := GetFirmwareIndependentCommand(OV580_GET_CALIBRATION_FILE_LENGTH)
+	response, err := l.executeAndWaitForResponse(command, 0x1)
+	if err != nil {
+		return fmt.Errorf("failed to %s: %w", command.String(), err)
+	}
+	fileLength := response[3:6]
+	slog.Debug(fmt.Sprintf("calibration file length: %v", fileLength))
+
+	command = GetFirmwareIndependentCommand(OV580_GET_CALIBRATION_FILE_PART)
+	fileBytes := []byte{}
+	for {
+		response, err := l.executeAndWaitForResponse(command, 0x1)
+		if err != nil {
+			return fmt.Errorf("failed to %s: %w", command.String(), err)
+		}
+		if response[1] == 0x3 {
+			break
+		}
+		fileBytes = append(fileBytes, response[3:(3+response[2])]...)
+	}
+
+	// enable IMU stream
+	if err := l.enableEventReporting(OV580_ENABLE_IMU_STREAM, "1"); err != nil {
+		return err
+	}
+
+	return l.parseCalibrationConfigs(fileBytes)
+}
+
+func (l *xrealLightOV580) parseCalibrationConfigs(fileBytes []byte) error {
+	content := string(fileBytes)
+
+	startIdx := strings.Index(content, "<")
+	endIdx := strings.LastIndex(content, ">")
+	xmlString := content[startIdx:(endIdx + 1)]
+	slog.Debug(fmt.Sprintf("xml content: %s", xmlString))
+
+	startIdx = strings.Index(content, "{")
+	endIdx = strings.LastIndex(content, "}")
+	jsonBytes := fileBytes[startIdx:(endIdx + 1)]
+	var jsonData map[string]interface{}
+	err := json.Unmarshal(jsonBytes, &jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	slog.Debug(fmt.Sprintf("json content: %s", jsonData))
+
+	device1Data := jsonData["IMU"].(map[string]interface{})["device_1"].(map[string]interface{})
+
+	accelBias := device1Data["accel_bias"].([]interface{})
+	l.accelerometerBias = &AccelerometerVector{
+		X: float32(accelBias[0].(float64)),
+		Y: float32(accelBias[1].(float64)),
+		Z: float32(accelBias[2].(float64)),
+	}
+
+	gyroBias := device1Data["gyro_bias"].([]interface{})
+	l.gyroscopeBias = &GyroscopeVector{
+		X: float32(gyroBias[0].(float64)),
+		Y: float32(gyroBias[1].(float64)),
+		Z: float32(gyroBias[2].(float64)),
+	}
+
+	slog.Debug(fmt.Sprintf("remaining content: %s", content[(endIdx+1):]))
+
 	return nil
 }
 
@@ -117,7 +217,6 @@ func (l *xrealLightOV580) executeAndWaitForResponse(command *Command, value uint
 			return response, nil
 		case <-time.After(waitForPacketTimeout):
 			if retry < retryMaxAttempts-1 {
-				slog.Debug(fmt.Sprintf("timed out waiting for response for %s, retry", command.String()))
 				continue
 			}
 			return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
@@ -153,15 +252,105 @@ func (l *xrealLightOV580) readAndProcessData() error {
 	}
 
 	switch buffer[0] {
-	case 0x1:
-		// TODO(happyz): Handles event data
+	case 0x1: // IMU event
+		// don't do anything if not yet initialized
+		if !l.initialized {
+			return nil
+		}
+
+		reader := bytes.NewReader(buffer[0x2a:])
+
+		var temperature uint16
+		binary.Read(reader, binary.LittleEndian, &temperature)
+		slog.Debug(fmt.Sprintf("temperature: %d", temperature))
+
+		var gyroTimestamp uint64 // nanoseconds
+		binary.Read(reader, binary.LittleEndian, &gyroTimestamp)
+
+		var gyroMultiplierRaw uint32
+		binary.Read(reader, binary.LittleEndian, &gyroMultiplierRaw)
+		gyroMultiplier := float32(gyroMultiplierRaw)
+
+		var gyroDivisorRaw uint32
+		binary.Read(reader, binary.LittleEndian, &gyroDivisorRaw)
+		gyroDivisor := float32(gyroDivisorRaw)
+
+		var gyroXRaw int32
+		binary.Read(reader, binary.LittleEndian, &gyroXRaw)
+		gyroX := float32(gyroXRaw)
+
+		var gyroYRaw int32
+		binary.Read(reader, binary.LittleEndian, &gyroYRaw)
+		gyroY := float32(gyroYRaw)
+
+		var gyroZRaw int32
+		binary.Read(reader, binary.LittleEndian, &gyroZRaw)
+		gyroZ := float32(gyroZRaw)
+
+		gyro := &GyroscopeVector{
+			X: (gyroX*gyroMultiplier/gyroDivisor)*(math.Pi/180.0) - l.gyroscopeBias.X,
+			Y: -(gyroY*gyroMultiplier/gyroDivisor)*(math.Pi/180.0) + l.gyroscopeBias.Y,
+			Z: -(gyroZ*gyroMultiplier/gyroDivisor)*(math.Pi/180.0) + l.gyroscopeBias.Z,
+		}
+
+		var accelTimestamp uint64 // nanoseconds
+		binary.Read(reader, binary.LittleEndian, &accelTimestamp)
+
+		var accelMultiplierRaw uint32
+		binary.Read(reader, binary.LittleEndian, &accelMultiplierRaw)
+		accelMultiplier := float32(accelMultiplierRaw)
+
+		var accelDivisorRaw uint32
+		binary.Read(reader, binary.LittleEndian, &accelDivisorRaw)
+		accelDivisor := float32(accelDivisorRaw)
+
+		var accelXRaw int32
+		binary.Read(reader, binary.LittleEndian, &accelXRaw)
+		accelX := float32(accelXRaw)
+
+		var accelYRaw int32
+		binary.Read(reader, binary.LittleEndian, &accelYRaw)
+		accelY := float32(accelYRaw)
+
+		var accelZRaw int32
+		binary.Read(reader, binary.LittleEndian, &accelZRaw)
+		accelZ := float32(accelZRaw)
+
+		accel := &AccelerometerVector{
+			X: (accelX*accelMultiplier/accelDivisor)*9.81 - l.accelerometerBias.X,
+			Y: -(accelY*accelMultiplier/accelDivisor)*9.81 + l.accelerometerBias.Y,
+			Z: -(accelZ*accelMultiplier/accelDivisor)*9.81 + l.accelerometerBias.Z,
+		}
+
+		if gyroTimestamp != accelTimestamp {
+			slog.Warn(fmt.Sprintf("odd, found gyro and accel with different timestamp: %d vs %d nanoseconds", gyroTimestamp, accelTimestamp))
+		}
+
+		imu := &IMUEvent{
+			Gyroscope:     gyro,
+			Accelerometer: accel,
+			TimeSinceBoot: gyroTimestamp / 1000000, // miliseconds
+		}
+		l.deviceHandlers.IMUEventHandler(imu)
 		return nil
 	case 0x2:
 		switch buffer[1] {
-		case 0x4:
+		case 0x0: // calibration file length
+			l.commandResponseChannel <- buffer[:]
+			return nil
+		case 0x4: // acknowleging IMU enabled
+			l.commandResponseChannel <- buffer[:]
+			return nil
+		case 0x1: // reading calibration file continue
+			l.commandResponseChannel <- buffer[:]
+			return nil
+		case 0x3: // ending calibration file read
 			l.commandResponseChannel <- buffer[:]
 			return nil
 		default:
+			l.commandResponseChannel <- buffer[:]
+			slog.Debug(fmt.Sprintf("buffer[1] = %d", buffer[1]))
+			return nil
 		}
 	default:
 	}
@@ -219,6 +408,8 @@ func hexStringToBytes(hexString string) ([]byte, error) {
 }
 
 func (l *xrealLightOV580) disconnect() error {
+	l.initialized = false
+
 	if l.device == nil {
 		return nil
 	}

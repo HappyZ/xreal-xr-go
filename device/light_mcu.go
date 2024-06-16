@@ -18,6 +18,8 @@ const (
 )
 
 type xrealLightMCU struct {
+	initialized bool
+
 	device *hid.Device
 	// serialNumber is optional and can be nil if not provided
 	serialNumber *string
@@ -60,29 +62,32 @@ func (l *xrealLightMCU) connectAndInitialize() error {
 		return fmt.Errorf(message)
 	}
 
-	var mcuDevice *hid.Device
-
 	if l.devicePath != nil {
 		if device, err := hid.OpenPath(*l.devicePath); err != nil {
 			return fmt.Errorf("failed to open the device path %s: %w", *l.devicePath, err)
 		} else {
-			mcuDevice = device
+			l.device = device
 		}
 	} else if l.serialNumber != nil {
 		if device, err := hid.Open(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID, *l.serialNumber); err != nil {
 			return fmt.Errorf("failed to open the device with serial number %s: %w", *l.serialNumber, err)
 		} else {
-			mcuDevice = device
+			l.device = device
 		}
 	} else {
 		if device, err := hid.OpenFirst(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID); err != nil {
 			return fmt.Errorf("failed to open the first hid device for XREAL Light MCU: %w", err)
 		} else {
-			mcuDevice = device
+			l.device = device
 		}
 	}
 
-	l.device = mcuDevice
+	// backfill missing data
+	if info, err := l.device.GetDeviceInfo(); err == nil {
+		l.devicePath = &info.Path
+		l.serialNumber = &info.SerialNbr
+	}
+
 	return l.initialize()
 }
 
@@ -109,6 +114,11 @@ func (l *xrealLightMCU) initialize() error {
 		}
 	}
 
+	// disable VSync event reporting by default with best effort
+	l.enableEventReporting(CMD_ENABLE_VSYNC, "0")
+
+	l.initialized = true
+
 	return nil
 }
 
@@ -130,6 +140,10 @@ func (l *xrealLightMCU) sendHeartBeatPeriodically() {
 	for {
 		select {
 		case <-ticker.C:
+			// don't do anything if not initialized
+			if !l.initialized {
+				continue
+			}
 			packet := l.buildCommandPacket(CMD_HEART_BEAT)
 			if err := l.executeOnly(packet); err != nil {
 				slog.Debug(fmt.Sprintf("failed to send a heartbeat: %v", err))
@@ -221,7 +235,7 @@ func (l *xrealLightMCU) readAndProcessPackets() error {
 		}
 
 		// handle MCU
-		if response.Type == PACKET_TYPE_MCU {
+		if response.Type == PACKET_TYPE_MCU && l.initialized {
 			if response.Command.EqualsInstruction(MCU_EVENT_KEY_PRESS) {
 				switch string(response.Payload) {
 				case "UP":
@@ -309,7 +323,6 @@ func (l *xrealLightMCU) executeAndWaitForResponse(command *Packet) ([]byte, erro
 			}
 		case <-time.After(waitForPacketTimeout):
 			if retry < retryMaxAttempts-1 {
-				slog.Debug(fmt.Sprintf("timed out waiting for packet response for %s, retry", command.String()))
 				continue
 			}
 			return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
@@ -422,6 +435,8 @@ func (l *xrealLightMCU) enableEventReporting(instruction CommandInstruction, ena
 }
 
 func (l *xrealLightMCU) disconnect() error {
+	l.initialized = false
+
 	if l.device == nil {
 		return nil
 	}
