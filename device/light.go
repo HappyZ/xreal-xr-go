@@ -116,8 +116,12 @@ func (l *xrealLight) SetVSyncEventHandler(handler VSyncEventHandler) {
 	l.mcu.deviceHandlers.VSyncEventHandler = handler
 }
 
-func (l *xrealLight) DevExecuteAndRead(input []string) {
-	l.mcu.devExecuteAndRead(input)
+func (l *xrealLight) DevExecuteAndRead(device string, input []string) {
+	if device == "mcu" {
+		l.mcu.devExecuteAndRead(input)
+	} else {
+		l.ov580.devExecuteAndRead(input)
+	}
 }
 
 func NewXREALLight(mcuDevicePath *string, ov580DevicePath *string) Device {

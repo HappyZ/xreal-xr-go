@@ -1,6 +1,7 @@
 package device
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -151,8 +152,6 @@ func (l *xrealLightOV580) readAndProcessData() error {
 		return fmt.Errorf("failed to read from device %v: %w", l.device, err)
 	}
 
-	slog.Debug(fmt.Sprintf("got ov580 %v", buffer[:]))
-
 	switch buffer[0] {
 	case 0x1:
 		// TODO(happyz): Handles event data
@@ -182,6 +181,41 @@ func (l *xrealLightOV580) enableEventReporting(instruction CommandInstruction, e
 		return fmt.Errorf("failed to set event reporting: %w", err)
 	}
 	return nil
+}
+
+func (l *xrealLightOV580) devExecuteAndRead(input []string) {
+	if len(input) != 3 {
+		slog.Error(fmt.Sprintf("wrong input format: want hex string for [CommandType CommandID Payload] got %v", input))
+		return
+	}
+
+	commandType, err := hexStringToBytes(input[0])
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	commandID, err := hexStringToBytes(input[1])
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	value, err := hexStringToBytes(input[2])
+	if err != nil {
+		slog.Error(err.Error())
+	}
+
+	command := &Command{Type: commandType[0], ID: commandID[0]}
+	l.executeAndWaitForResponse(command, value[0])
+}
+
+func hexStringToBytes(hexString string) ([]byte, error) {
+	if len(hexString)%2 != 0 {
+		hexString = "0" + hexString // Pad with '0' at the beginning
+	}
+
+	if byteArray, err := hex.DecodeString(hexString); err == nil {
+		return byteArray, nil
+	} else {
+		return nil, fmt.Errorf("failed to convert %s to hex: %w", hexString, err)
+	}
 }
 
 func (l *xrealLightOV580) disconnect() error {

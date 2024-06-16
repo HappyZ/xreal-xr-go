@@ -446,7 +446,7 @@ func (l *xrealLightMCU) disconnect() error {
 
 func (l *xrealLightMCU) devExecuteAndRead(input []string) {
 	if len(input) != 3 {
-		slog.Error(fmt.Sprintf("wrong input format: want [PacketType CommandID Payload] got %v", input))
+		slog.Error(fmt.Sprintf("wrong input format: want [CommandType CommandID Payload] got %v", input))
 		return
 	}
 

@@ -286,18 +286,19 @@ func confirmToContinue() bool {
 
 func handleDevTestCommand(d device.Device, input string) {
 	parts := strings.Split(input, " ")
-	if len(parts) < 2 {
-		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'test <command> <optional:args>'", parts, len(parts)))
+	if len(parts) < 3 {
+		slog.Error(fmt.Sprintf("invalid command format: get len(%v)=%d. Use 'test mcu/ov580 <command> <optional:args>'", parts, len(parts)))
 		return
 	}
 
-	command := parts[1]
+	device := parts[1]
+	command := parts[2]
 
 	switch command {
 	default:
 		if len(command) == 1 { // single char input
 			if confirmToContinue() {
-				d.DevExecuteAndRead(parts[1:])
+				d.DevExecuteAndRead(device, parts[2:])
 			}
 			return
 		}

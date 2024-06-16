@@ -35,7 +35,7 @@ type Device interface {
 	SetVSyncEventHandler(handler VSyncEventHandler)
 
 	// For development testing only
-	DevExecuteAndRead(intput []string)
+	DevExecuteAndRead(device string, intput []string)
 }
 
 // DisplayMode represents the display mode of AR glasses.
