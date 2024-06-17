@@ -25,6 +25,8 @@ type Device interface {
 	GetDisplayMode() (DisplayMode, error)
 	SetDisplayMode(mode DisplayMode) error
 
+	GetImages(folderpath string) ([]string, error)
+
 	EnableEventReporting(event CommandInstruction, enabled string) error
 
 	SetAmbientLightEventHandler(handler AmbientLightEventHandler)

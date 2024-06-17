@@ -127,6 +127,24 @@ func (l *xrealLight) DevExecuteAndRead(device string, input []string) {
 	}
 }
 
+func (l *xrealLight) GetImages(folderpath string) ([]string, error) {
+	slamCamFrame, err := l.cameras.getFrameFromSLAMCamera()
+	if err != nil {
+		return nil, err
+	}
+
+	var filepaths []string
+	var errAll error
+
+	if imageFilepath, errSLAMImage := slamFrameToImage(folderpath, slamCamFrame); errSLAMImage != nil {
+		errAll = fmt.Errorf("failed to dump SLAM image: %w", errSLAMImage)
+	} else {
+		filepaths = append(filepaths, imageFilepath)
+	}
+
+	return filepaths, errAll
+}
+
 // NewXREALLight creates a xrealLight instance initiating MCU, OV580, and USB Camera connections.
 // TODO(happyz): Supports multiple glasses connected.
 func NewXREALLight() Device {

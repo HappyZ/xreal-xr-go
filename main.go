@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -163,6 +164,7 @@ func handleGetCommand(d device.Device, input string) {
 	}
 
 	command := parts[1]
+	args := parts[2:]
 
 	switch command {
 	case "serial":
@@ -186,6 +188,17 @@ func handleGetCommand(d device.Device, input string) {
 			return
 		}
 		slog.Info(fmt.Sprintf("Brightness Level: %s", brightness))
+	case "image", "images":
+		if len(args) == 0 || !isDir(args[0]) {
+			slog.Error(fmt.Sprintf("invalid input: %v", args))
+			return
+		}
+		filepaths, err := d.GetImages(args[0])
+		if err != nil {
+			slog.Error(fmt.Sprintf("failed to dump images: %v", err))
+			return
+		}
+		slog.Info(fmt.Sprintf("dumped to file location: %v", filepaths))
 	default:
 		slog.Error("unknown command")
 	}
@@ -305,4 +318,19 @@ func handleDevTestCommand(d device.Device, input string) {
 		}
 		slog.Error("unknown command")
 	}
+}
+
+func isDir(path string) bool {
+	// Use os.Stat to get file info
+	info, err := os.Stat(path)
+	if err != nil {
+		// Handle error
+		if os.IsNotExist(err) {
+			return false // Path does not exist
+		}
+		return false // Other error, treat as not directory
+	}
+
+	// Check if the path is a directory
+	return info.IsDir()
 }
