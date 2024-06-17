@@ -366,10 +366,15 @@ func (l *xrealLightOV580) enableEventReporting(instruction CommandInstruction, e
 	if enabled == "1" {
 		value = 0x1
 	}
-	if _, err := l.executeAndWaitForResponse(command, value); err != nil {
-		return fmt.Errorf("failed to set event reporting: %w", err)
+	for retry := 0; retry < retryMaxAttempts; retry++ {
+		if response, err := l.executeAndWaitForResponse(command, value); err == nil {
+			if (response[0] != 0x2) && (response[0] != 0x4) {
+				return fmt.Errorf("failed to set event reporting: want [0x2 0x4] got %v", response)
+			}
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("failed to set event reporting: exceed max attempts to execute")
 }
 
 func (l *xrealLightOV580) devExecuteAndRead(input []string) {
@@ -392,7 +397,12 @@ func (l *xrealLightOV580) devExecuteAndRead(input []string) {
 	}
 
 	command := &Command{Type: commandType[0], ID: commandID[0]}
-	l.executeAndWaitForResponse(command, value[0])
+	response, err := l.executeAndWaitForResponse(command, value[0])
+	if err != nil {
+		slog.Error(fmt.Sprintf("%s : '%v' failed: %v", command.String(), response, err))
+		return
+	}
+	slog.Info(fmt.Sprintf("%s : '%v'", command.String(), response))
 }
 
 func hexStringToBytes(hexString string) ([]byte, error) {

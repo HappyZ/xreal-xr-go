@@ -325,7 +325,6 @@ func (l *xrealLightMCU) executeAndWaitForResponse(command *Packet) ([]byte, erro
 			if retry < retryMaxAttempts-1 {
 				continue
 			}
-			return nil, fmt.Errorf("failed to get response for %s: timed out", command.String())
 		}
 	}
 
@@ -426,12 +425,15 @@ func (l *xrealLightMCU) setBrightnessLevel(level string) error {
 
 func (l *xrealLightMCU) enableEventReporting(instruction CommandInstruction, enabled string) error {
 	packet := l.buildCommandPacket(instruction, []byte(enabled))
-	if response, err := l.executeAndWaitForResponse(packet); err != nil {
-		return fmt.Errorf("failed to set event reporting: %w", err)
-	} else if response[0] != enabled[0] {
-		return fmt.Errorf("failed to set event reporting: want %s got %s", enabled, string(response))
+	for retry := 0; retry < retryMaxAttempts; retry++ {
+		if response, err := l.executeAndWaitForResponse(packet); err == nil {
+			if response[0] != enabled[0] {
+				return fmt.Errorf("failed to set event reporting: want %s got %s", enabled, string(response))
+			}
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("failed to set event reporting: exceed max attempts")
 }
 
 func (l *xrealLightMCU) disconnect() error {
