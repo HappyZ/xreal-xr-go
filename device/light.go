@@ -19,8 +19,9 @@ const (
 )
 
 type xrealLight struct {
-	mcu   *xrealLightMCU
-	ov580 *xrealLightOV580
+	mcu     *xrealLightMCU
+	ov580   *xrealLightOV580
+	cameras *xrealLightCamera
 }
 
 func (l *xrealLight) Name() string {
@@ -38,9 +39,10 @@ func (l *xrealLight) VID() uint16 {
 func (l *xrealLight) Disconnect() error {
 	errMCU := l.mcu.disconnect()
 	errOV580 := l.ov580.disconnect()
+	errCameras := l.cameras.disconnect()
 
-	if errMCU != nil || errOV580 != nil {
-		return fmt.Errorf("mcu err: %w; 0v580 err: %w", errMCU, errOV580)
+	if errMCU != nil || errOV580 != nil || errCameras != nil {
+		return fmt.Errorf("mcu err: %w; 0v580 err: %w; cameras err: %w", errMCU, errOV580, errCameras)
 	}
 	return nil
 }
@@ -48,10 +50,11 @@ func (l *xrealLight) Disconnect() error {
 func (l *xrealLight) Connect() error {
 	errMCU := l.mcu.connectAndInitialize()
 	errOV580 := l.ov580.connectAndInitialize()
+	errCameras := l.cameras.connectAndInitialize()
 
-	if errMCU != nil || errOV580 != nil {
+	if errMCU != nil || errOV580 != nil || errCameras != nil {
 		l.Disconnect()
-		return fmt.Errorf("mcu err: %w; 0v580 err: %w", errMCU, errOV580)
+		return fmt.Errorf("mcu err: %w; 0v580 err: %w; cameras err: %w", errMCU, errOV580, errCameras)
 	}
 	return nil
 }
@@ -124,11 +127,12 @@ func (l *xrealLight) DevExecuteAndRead(device string, input []string) {
 	}
 }
 
-func NewXREALLight(mcuDevicePath *string, ov580DevicePath *string) Device {
+// NewXREALLight creates a xrealLight instance initiating MCU, OV580, and USB Camera connections.
+// TODO(happyz): Supports multiple glasses connected.
+func NewXREALLight() Device {
 	var l xrealLight
 
 	l.mcu = &xrealLightMCU{
-		devicePath: mcuDevicePath,
 		deviceHandlers: &DeviceHandlers{
 			AmbientLightEventHandler: func(value uint16) {
 				slog.Info(fmt.Sprintf("Ambient light: %d", value))
@@ -155,7 +159,6 @@ func NewXREALLight(mcuDevicePath *string, ov580DevicePath *string) Device {
 	}
 
 	l.ov580 = &xrealLightOV580{
-		devicePath: ov580DevicePath,
 		deviceHandlers: &DeviceHandlers{
 			IMUEventHandler: func(imu *IMUEvent) {
 				slog.Info(fmt.Sprintf("IMU: %s", imu.String()))
@@ -164,6 +167,8 @@ func NewXREALLight(mcuDevicePath *string, ov580DevicePath *string) Device {
 		commandResponseChannel: make(chan []byte),
 		stopReadDataChannel:    make(chan struct{}),
 	}
+
+	l.cameras = &xrealLightCamera{}
 
 	return &l
 }

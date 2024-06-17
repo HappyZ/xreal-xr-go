@@ -135,17 +135,16 @@ func waitAndConnectGlass() device.Device {
 func handleDeviceConnection(input string) device.Device {
 	parts := strings.Split(input, " ")
 	if len(parts) != 2 {
-		slog.Error(fmt.Sprintf("invalid command format: connect len(%v)=%d. Use 'connect <any/serial>'", parts, len(parts)))
+		slog.Error(fmt.Sprintf("invalid command format: connect len(%v)=%d. Use 'connect <any>'", parts, len(parts)))
 		return nil
 	}
 
 	var glassDevice device.Device
 	switch parts[1] {
 	case "any":
-		glassDevice = device.NewXREALLight(nil, nil)
+		glassDevice = device.NewXREALLight()
 	default:
-		// assume it's serial number
-		glassDevice = device.NewXREALLight(nil, &parts[1])
+		return nil
 	}
 
 	err := glassDevice.Connect()
@@ -228,7 +227,7 @@ func handleSetCommand(d device.Device, input string) {
 			return
 		}
 		slog.Info("Display mode set successfully")
-	case "vsync", "ambientlight", "magnetometer", "temperature", "imu":
+	case "vsync", "ambientlight", "magnetometer", "temperature", "imu", "rgbcam":
 		if len(args) == 0 || (args[0] != "0" && args[0] != "1") {
 			slog.Error("empty input, please specify 0 (disable) or 1 (enable)")
 			return
@@ -243,6 +242,8 @@ func handleSetCommand(d device.Device, input string) {
 			err = d.EnableEventReporting(device.CMD_ENABLE_MAGNETOMETER, args[0])
 		case "temperature":
 			err = d.EnableEventReporting(device.CMD_ENABLE_TEMPERATURE, args[0])
+		case "rgbcam":
+			err = d.EnableEventReporting(device.CMD_ENABLE_RGB_CAMERA, args[0])
 		case "imu":
 			err = d.EnableEventReporting(device.OV580_ENABLE_IMU_STREAM, args[0])
 		}

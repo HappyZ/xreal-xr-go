@@ -24,6 +24,7 @@ const (
 	CMD_ENABLE_VSYNC
 	CMD_GET_TEMPERATURE_ENABLED
 	CMD_ENABLE_TEMPERATURE
+	CMD_ENABLE_RGB_CAMERA
 
 	CMD_GET_GLASS_ACTIVATED
 	CMD_SET_GLASS_ACTIVATION
@@ -110,6 +111,8 @@ func (cmd Command) String() string {
 		return "get if geo magnetometer reporting enabled"
 	case CMD_ENABLE_TEMPERATURE:
 		return "enable temperature reporting"
+	case CMD_ENABLE_RGB_CAMERA:
+		return "enable RGB camera"
 	case CMD_GET_TEMPERATURE_ENABLED:
 		return "get if temperature reporting enabled"
 	case CMD_SET_GLASS_ACTIVATION:
@@ -182,6 +185,8 @@ func GetFirmwareIndependentCommand(instruction CommandInstruction) *Command {
 		command = &Command{Type: 0x31, ID: 0x65}
 	case CMD_GET_GLASS_ACTIVATION_TIME:
 		command = &Command{Type: 0x33, ID: 0x66}
+	case CMD_ENABLE_RGB_CAMERA:
+		command = &Command{Type: 0x31, ID: 0x68}
 	case CMD_GET_BRIGHTNESS_LEVEL:
 		command = &Command{Type: 0x33, ID: 0x31}
 	case CMD_SET_BRIGHTNESS_LEVEL:

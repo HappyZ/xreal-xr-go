@@ -21,8 +21,6 @@ type xrealLightMCU struct {
 	initialized bool
 
 	device *hid.Device
-	// serialNumber is optional and can be nil if not provided
-	serialNumber *string
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
@@ -51,41 +49,30 @@ func (l *xrealLightMCU) connectAndInitialize() error {
 	}
 
 	if len(devices) == 0 {
-		return fmt.Errorf("no XREAL Light glasses found: %v", devices)
+		return fmt.Errorf("no XREAL Light glass MCU found: %v", devices)
 	}
 
-	if len(devices) > 1 && l.devicePath == nil && l.serialNumber == nil {
-		var message = string("multiple XREAL Light glasses found, please specify either devicePath or serialNumber:\n")
-		for _, info := range devices {
-			message += "- path: " + info.Path + "\n" + "  serialNumber: " + info.SerialNbr + "\n"
+	for _, device := range devices {
+		if l.devicePath == nil {
+			if len(devices) > 1 {
+				slog.Warn(fmt.Sprintf("multiple XREAL Light glass MCUs found, assuming to use the first one: %s", device.Path))
+			}
+			l.devicePath = &device.Path
 		}
-		return fmt.Errorf(message)
-	}
 
-	if l.devicePath != nil {
+		if *l.devicePath != device.Path {
+			continue
+		}
+
 		if device, err := hid.OpenPath(*l.devicePath); err != nil {
 			return fmt.Errorf("failed to open the device path %s: %w", *l.devicePath, err)
 		} else {
 			l.device = device
 		}
-	} else if l.serialNumber != nil {
-		if device, err := hid.Open(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID, *l.serialNumber); err != nil {
-			return fmt.Errorf("failed to open the device with serial number %s: %w", *l.serialNumber, err)
-		} else {
-			l.device = device
-		}
-	} else {
-		if device, err := hid.OpenFirst(XREAL_LIGHT_MCU_VID, XREAL_LIGHT_MCU_PID); err != nil {
-			return fmt.Errorf("failed to open the first hid device for XREAL Light MCU: %w", err)
-		} else {
-			l.device = device
-		}
 	}
 
-	// backfill missing data
-	if info, err := l.device.GetDeviceInfo(); err == nil {
-		l.devicePath = &info.Path
-		l.serialNumber = &info.SerialNbr
+	if l.device == nil {
+		return fmt.Errorf("unable to match existing devices to device path %s", *l.devicePath)
 	}
 
 	return l.initialize()
@@ -106,6 +93,9 @@ func (l *xrealLightMCU) initialize() error {
 		}
 	}
 
+	// disable VSync event reporting by default with best effort
+	l.enableEventReporting(CMD_ENABLE_VSYNC, "0")
+
 	// ensure glass is activated
 	packet := l.buildCommandPacket(CMD_SET_GLASS_ACTIVATION, []byte("1"))
 	for {
@@ -114,8 +104,8 @@ func (l *xrealLightMCU) initialize() error {
 		}
 	}
 
-	// disable VSync event reporting by default with best effort
-	l.enableEventReporting(CMD_ENABLE_VSYNC, "0")
+	// ensure rgb camera is enabled
+	l.enableEventReporting(CMD_ENABLE_RGB_CAMERA, "1")
 
 	l.initialized = true
 

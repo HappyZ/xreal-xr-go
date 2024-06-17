@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// XREAL Light SLAM Camera and IMU
+	// XREAL Light SLAM Camera and IMU (should be the same as SLAM camera)
 	XREAL_LIGHT_OV580_VID = uint16(0x05a9)
 	XREAL_LIGHT_OV580_PID = uint16(0x0680)
 )
@@ -25,8 +25,6 @@ type xrealLightOV580 struct {
 	initialized bool
 
 	device *hid.Device
-	// serialNumber is optional and can be nil if not provided
-	serialNumber *string
 	// devicePath is optional and can be nil if not provided
 	devicePath *string
 
@@ -54,41 +52,26 @@ func (l *xrealLightOV580) connectAndInitialize() error {
 	}
 
 	if len(devices) == 0 {
-		return fmt.Errorf("no XREAL Light glasses found: %v", devices)
+		return fmt.Errorf("no XREAL Light glass OV580 hid devices found: %v", devices)
 	}
 
-	if len(devices) > 1 && l.devicePath == nil && l.serialNumber == nil {
-		var message = string("multiple XREAL Light glasses found, please specify either devicePath or serialNumber:\n")
-		for _, info := range devices {
-			message += "- path: " + info.Path + "\n" + "  serialNumber: " + info.SerialNbr + "\n"
+	for _, device := range devices {
+		if l.devicePath == nil {
+			if len(devices) > 1 {
+				slog.Warn(fmt.Sprintf("multiple XREAL Light glass OV580s found, assuming to use the first one: %s", device.Path))
+			}
+			l.devicePath = &device.Path
 		}
-		return fmt.Errorf(message)
-	}
 
-	if l.devicePath != nil {
+		if *l.devicePath != device.Path {
+			continue
+		}
+
 		if device, err := hid.OpenPath(*l.devicePath); err != nil {
 			return fmt.Errorf("failed to open the device path %s: %w", *l.devicePath, err)
 		} else {
 			l.device = device
 		}
-	} else if l.serialNumber != nil {
-		if device, err := hid.Open(XREAL_LIGHT_OV580_VID, XREAL_LIGHT_OV580_PID, *l.serialNumber); err != nil {
-			return fmt.Errorf("failed to open the device with serial number %s: %w", *l.serialNumber, err)
-		} else {
-			l.device = device
-		}
-	} else {
-		if device, err := hid.OpenFirst(XREAL_LIGHT_OV580_VID, XREAL_LIGHT_OV580_PID); err != nil {
-			return fmt.Errorf("failed to open the first hid device for XREAL Light OV580: %w", err)
-		} else {
-			l.device = device
-		}
-	}
-
-	// backfill missing data
-	if info, err := l.device.GetDeviceInfo(); err == nil {
-		l.devicePath = &info.Path
-		l.serialNumber = &info.SerialNbr
 	}
 
 	return l.initialize()
@@ -139,9 +122,9 @@ func (l *xrealLightOV580) readAndParseCalibrationConfigs() error {
 	}
 
 	// enable IMU stream
-	if err := l.enableEventReporting(OV580_ENABLE_IMU_STREAM, "1"); err != nil {
-		return err
-	}
+	// if err := l.enableEventReporting(OV580_ENABLE_IMU_STREAM, "1"); err != nil {
+	// 	return err
+	// }
 
 	return l.parseCalibrationConfigs(fileBytes)
 }
