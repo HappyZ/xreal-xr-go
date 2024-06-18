@@ -3,7 +3,11 @@ package device
 import (
 	"encoding/binary"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	libusb "github.com/gotmc/libusb/v2"
 )
@@ -51,6 +55,71 @@ type xrealLightSLAMCameraFrame struct {
 	TimeSinceBoot uint64
 }
 
+func (frame *xrealLightSLAMCameraFrame) toImage() (image.Image, image.Image) {
+	left := bytesToImage(frame.Left, 640, 480, true /* isGray */)
+	right := bytesToImage(frame.Right, 640, 480, true /* isGray */)
+	return left, right
+}
+
+func (frame *xrealLightSLAMCameraFrame) writeToFolder(folderpath string) ([]string, error) {
+	var filepaths []string
+
+	imageLeft, imageRight := frame.toImage()
+
+	if imageLeft != nil {
+		filename := fmt.Sprintf("%d_left.jpeg", frame.TimeSinceBoot)
+		fpath := filepath.Join(folderpath, filename)
+		if err := imageToJpegFile(imageLeft, fpath); err == nil {
+			filepaths = append(filepaths, fpath)
+		}
+	}
+
+	if imageRight != nil {
+		filename := fmt.Sprintf("%d_right.jpeg", frame.TimeSinceBoot)
+		fpath := filepath.Join(folderpath, filename)
+		if err := imageToJpegFile(imageRight, fpath); err == nil {
+			filepaths = append(filepaths, fpath)
+		}
+	}
+
+	return filepaths, nil
+}
+
+// bytesToImage converts []byte to image.Image in greyscale
+func bytesToImage(data []byte, width, height int, isGray bool) image.Image {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var img image.Image
+
+	if isGray {
+		grayImg := image.NewGray(image.Rect(0, 0, width, height))
+		copy(grayImg.Pix, data)
+		img = grayImg
+	} else {
+		rgbImg := image.NewRGBA(image.Rect(0, 0, width, height))
+		copy(rgbImg.Pix, data)
+		img = rgbImg
+	}
+
+	return img
+}
+
+func imageToJpegFile(img image.Image, filepath string) error {
+	f, err := os.Create(filepath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", filepath, err)
+	}
+	defer f.Close()
+
+	err = jpeg.Encode(f, img, nil)
+	if err != nil {
+		return fmt.Errorf("failed to write image to file %s: %w", filepath, err)
+	}
+	return nil
+}
+
 type xrealLightRGBCameraFrame struct {
 	R []byte
 	G []byte
@@ -95,7 +164,8 @@ func (l *xrealLightCamera) connectAndInitialize() error {
 		}
 		if (descriptor.VendorID == XREAL_LIGHT_RGB_CAM_VID) && (descriptor.ProductID == XREAL_LIGHT_RGB_CAM_PID) {
 			rgbCameraDevices = append(rgbCameraDevices, device)
-		} else if (descriptor.VendorID == XREAL_LIGHT_SLAM_CAM_VID) && (descriptor.ProductID == XREAL_LIGHT_SLAM_CAM_PID) {
+		}
+		if (descriptor.VendorID == XREAL_LIGHT_SLAM_CAM_VID) && (descriptor.ProductID == XREAL_LIGHT_SLAM_CAM_PID) {
 			slamCameraDevices = append(slamCameraDevices, device)
 		}
 	}
@@ -160,6 +230,14 @@ func (l *xrealLightCamera) connectAndInitialize() error {
 }
 
 func (l *xrealLightCamera) initialize() error {
+	if err := l.slamCamera.SetAutoDetachKernelDriver(true); err != nil {
+		return fmt.Errorf("failed to SetAutoDetachKernelDriver(true) to SLAM cam: %w", err)
+	}
+
+	if err := l.slamCamera.ClaimInterface(1); err != nil {
+		return fmt.Errorf("failed to ClaimInterface(1) to SLAM cam: %w", err)
+	}
+
 	_, err := l.slamCamera.ControlTransfer( // see libusb_control_transfer
 		0x21,    // LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE
 		0x01,    // the request field for the setup packet, UVC_SET_CUR
@@ -169,8 +247,17 @@ func (l *xrealLightCamera) initialize() error {
 		len(enableStreamingPacket),
 		1000, // timeout, milliseconds
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to send control transfer message to SLAM cam: %w", err)
+	}
+
+	if err := l.rgbCamera.SetAutoDetachKernelDriver(true); err != nil {
+		return fmt.Errorf("failed to SetAutoDetachKernelDriver(true) to RGB cam: %w", err)
+	}
+
+	if err := l.rgbCamera.ClaimInterface(1); err != nil {
+		return fmt.Errorf("failed to ClaimInterface(1) to RGB cam: %w", err)
 	}
 
 	_, err = l.rgbCamera.ControlTransfer( // see libusb_control_transfer
@@ -192,16 +279,17 @@ func (l *xrealLightCamera) initialize() error {
 }
 
 func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame, error) {
-	var data []byte
+	data := make([]byte, 615908*2)
 	for {
-		bulkData, receivedCount, err := l.slamCamera.BulkTransferIn(0x81, 615908, 0 /* unlimited timeout */)
+		receivedCount, err := l.slamCamera.BulkTransfer(0x81, data, len(data), 0 /* unlimited timeout */)
 		if err != nil {
 			return nil, fmt.Errorf("failed to receive data from SLAM camera: %w", err)
 		}
-		if receivedCount == 615908 && bulkData[0] != 0 {
-			data = bulkData
+		if receivedCount == 615908 && data[0] != 0 {
+			data = data[:615098]
 			break
 		}
+		slog.Debug(fmt.Sprintf("got %d instead of 615908, try again", receivedCount))
 	}
 
 	// Remove headers occurring every 0x8000 bytes (max transfer size)
@@ -226,6 +314,16 @@ func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame,
 	// Truncate bulkData to the actual length after header removal
 	data = data[:writeIndex]
 
+	isAllZero := true
+	for _, b := range data {
+		if b != 0 {
+			isAllZero = false
+		}
+	}
+	if isAllZero {
+		return nil, fmt.Errorf("got empty frame, better try again?")
+	}
+
 	// Process bulk data to extract left and right frames
 	var left, right []byte
 	for i := 0; i < 480; i++ {
@@ -233,10 +331,10 @@ func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame,
 		right = append(right, data[(i*2+1)*640:(i*2+2)*640]...)
 	}
 
-	// Calculate timestamp from bulk data (simulation)
+	// Calculate timestamp from bulk data (this is probably not right)
 	var timeSinceBoot uint64
-	if len(data) >= 640*480*2+8 {
-		timeSinceBoot = binary.LittleEndian.Uint64(data[640*480*2 : 640*480*2+8])
+	if len(data) >= 614400+8 {
+		timeSinceBoot = binary.LittleEndian.Uint64(data[614400 : 614400+8])
 	}
 	timeSinceBoot = (timeSinceBoot/1000 + 37600) / 1000 // milliseconds
 
@@ -252,7 +350,7 @@ func (l *xrealLightCamera) disconnect() error {
 
 	var errRGB error
 	if l.rgbCamera != nil {
-		errRGB := l.rgbCamera.Close()
+		errRGB = l.rgbCamera.Close()
 		if errRGB == nil {
 			l.rgbCamera = nil
 		}
@@ -277,8 +375,4 @@ func (l *xrealLightCamera) disconnect() error {
 	}
 
 	return nil
-}
-
-func slamFrameToImage(folderpath string, frame *xrealLightSLAMCameraFrame) (string, error) {
-	return "", fmt.Errorf("not implemented: %s, %v", folderpath, frame)
 }

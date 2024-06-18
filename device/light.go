@@ -128,21 +128,21 @@ func (l *xrealLight) DevExecuteAndRead(device string, input []string) {
 }
 
 func (l *xrealLight) GetImages(folderpath string) ([]string, error) {
-	slamCamFrame, err := l.cameras.getFrameFromSLAMCamera()
-	if err != nil {
-		return nil, err
+	var slamCamFrame *xrealLightSLAMCameraFrame
+	for retry := 0; retry < retryMaxAttempts; retry++ {
+		frame, err := l.cameras.getFrameFromSLAMCamera()
+		if err == nil {
+			slamCamFrame = frame
+			break
+		}
+		slog.Debug(fmt.Sprintf("failed to get images, retry...: %v", err))
+
+	}
+	if slamCamFrame == nil {
+		return nil, fmt.Errorf("failed to get images, exceeds max retry attempts")
 	}
 
-	var filepaths []string
-	var errAll error
-
-	if imageFilepath, errSLAMImage := slamFrameToImage(folderpath, slamCamFrame); errSLAMImage != nil {
-		errAll = fmt.Errorf("failed to dump SLAM image: %w", errSLAMImage)
-	} else {
-		filepaths = append(filepaths, imageFilepath)
-	}
-
-	return filepaths, errAll
+	return slamCamFrame.writeToFolder(folderpath)
 }
 
 // NewXREALLight creates a xrealLight instance initiating MCU, OV580, and USB Camera connections.
