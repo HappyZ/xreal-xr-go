@@ -30,6 +30,8 @@ const (
 	CMD_SET_GLASS_ACTIVATION
 	CMD_GET_GLASS_ACTIVATION_TIME
 
+	CMD_SET_SLEEP_TIME
+
 	CMD_HEART_BEAT
 	CMD_GET_NREAL_FW_STRING
 	CMD_GET_FIRMWARE_VERSION
@@ -95,6 +97,8 @@ func (cmd Command) String() string {
 		return "get firmware version"
 	case CMD_GET_SERIAL_NUMBER:
 		return "get glass serial number"
+	case CMD_SET_SLEEP_TIME:
+		return "set glass sleep time"
 	case CMD_HEART_BEAT:
 		return "send heart beat"
 	case CMD_ENABLE_AMBIENT_LIGHT:
@@ -187,6 +191,8 @@ func GetFirmwareIndependentCommand(instruction CommandInstruction) *Command {
 		command = &Command{Type: 0x33, ID: 0x66}
 	case CMD_ENABLE_RGB_CAMERA:
 		command = &Command{Type: 0x31, ID: 0x68}
+	case CMD_SET_SLEEP_TIME:
+		command = &Command{Type: 0x31, ID: 0x51}
 	case CMD_GET_BRIGHTNESS_LEVEL:
 		command = &Command{Type: 0x33, ID: 0x31}
 	case CMD_SET_BRIGHTNESS_LEVEL:

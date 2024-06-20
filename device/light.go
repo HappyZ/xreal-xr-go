@@ -3,6 +3,8 @@ package device
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"xreal-light-xr-go/constant"
@@ -127,6 +129,30 @@ func (l *xrealLight) DevExecuteAndRead(device string, input []string) {
 	}
 }
 
+func (l *xrealLight) GetImagesDataDev(folderpath string) ([]string, error) {
+	data, err := l.cameras.getRawBytesFromSLAMCamera()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get slam images data: %w", err)
+	}
+	fpathSLAM := filepath.Join(folderpath, "cam_slam_dev.dat")
+	err = os.WriteFile(fpathSLAM, data, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write slam images: %w", err)
+	}
+
+	// data, err = l.cameras.getRawBytesFromRGBCamera()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get rgb images data: %w", err)
+	// }
+	// fpathRGB := filepath.Join(folderpath, "cam_rgb_dev.dat")
+	// err = os.WriteFile(fpathRGB, data, 0644)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to write rgb images: %w", err)
+	// }
+
+	return []string{fpathSLAM}, nil
+}
+
 func (l *xrealLight) GetImages(folderpath string) ([]string, error) {
 	var slamCamFrame *xrealLightSLAMCameraFrame
 	for retry := 0; retry < retryMaxAttempts; retry++ {
@@ -142,7 +168,9 @@ func (l *xrealLight) GetImages(folderpath string) ([]string, error) {
 		return nil, fmt.Errorf("failed to get images, exceeds max retry attempts")
 	}
 
-	return slamCamFrame.writeToFolder(folderpath)
+	epoch := time.Now().UnixMilli()
+
+	return slamCamFrame.WriteToFolder(folderpath, fmt.Sprintf("%d", epoch))
 }
 
 // NewXREALLight creates a xrealLight instance initiating MCU, OV580, and USB Camera connections.

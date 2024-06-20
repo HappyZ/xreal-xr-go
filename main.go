@@ -240,7 +240,7 @@ func handleSetCommand(d device.Device, input string) {
 			return
 		}
 		slog.Info("Display mode set successfully")
-	case "vsync", "ambientlight", "magnetometer", "temperature", "imu", "rgbcam":
+	case "vsync", "ambientlight", "magnetometer", "temperature", "imu", "rgbcam", "sleep":
 		if len(args) == 0 || (args[0] != "0" && args[0] != "1") {
 			slog.Error("empty input, please specify 0 (disable) or 1 (enable)")
 			return
@@ -259,6 +259,8 @@ func handleSetCommand(d device.Device, input string) {
 			err = d.EnableEventReporting(device.CMD_ENABLE_RGB_CAMERA, args[0])
 		case "imu":
 			err = d.EnableEventReporting(device.OV580_ENABLE_IMU_STREAM, args[0])
+		case "sleep":
+			err = d.EnableEventReporting(device.CMD_SET_SLEEP_TIME, args[0])
 		}
 		if err != nil {
 			slog.Error(fmt.Sprintf("failed to set %s event: %v", command, err))
@@ -307,9 +309,10 @@ func handleDevTestCommand(d device.Device, input string) {
 
 	device := parts[1]
 	command := parts[2]
+	args := parts[3:]
 
-	switch command {
-	default:
+	switch device {
+	case "mcu", "ov580":
 		if len(command) == 1 { // single char input
 			if confirmToContinue() {
 				d.DevExecuteAndRead(device, parts[2:])
@@ -317,6 +320,23 @@ func handleDevTestCommand(d device.Device, input string) {
 			return
 		}
 		slog.Error("unknown command")
+	case "camera":
+		switch command {
+		case "images":
+			if len(args) == 0 {
+				slog.Error("needs folder path")
+				return
+			}
+			if filepaths, err := d.GetImagesDataDev(args[0]); err != nil {
+				slog.Error(err.Error())
+			} else {
+				slog.Info(fmt.Sprintf("dumped to %v", filepaths))
+			}
+		default:
+			slog.Error("unknown device")
+		}
+	default:
+		slog.Error("unknown device")
 	}
 }
 

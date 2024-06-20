@@ -107,6 +107,9 @@ func (l *xrealLightMCU) initialize() error {
 	// ensure rgb camera is enabled
 	l.enableEventReporting(CMD_ENABLE_RGB_CAMERA, "1")
 
+	// set sleep time to be larger
+	l.enableEventReporting(CMD_SET_SLEEP_TIME, "300")
+
 	l.initialized = true
 
 	return nil

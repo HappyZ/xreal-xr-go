@@ -1,7 +1,6 @@
 package device
 
 import (
-	"encoding/binary"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -14,12 +13,14 @@ import (
 
 const (
 	// XREAL Light SLAM Camera and IMU (should be the same as OV580)
-	XREAL_LIGHT_SLAM_CAM_VID = uint16(0x05a9)
-	XREAL_LIGHT_SLAM_CAM_PID = uint16(0x0680)
+	XREAL_LIGHT_SLAM_CAM_VID    = uint16(0x05a9)
+	XREAL_LIGHT_SLAM_CAM_PID    = uint16(0x0680)
+	XREAL_LIGHT_SLAM_CAM_IF_NUM = 1
 
 	//XREAL Light RGB Camera
-	XREAL_LIGHT_RGB_CAM_VID = uint16(0x0817)
-	XREAL_LIGHT_RGB_CAM_PID = uint16(0x0909)
+	XREAL_LIGHT_RGB_CAM_VID    = uint16(0x0817)
+	XREAL_LIGHT_RGB_CAM_PID    = uint16(0x0909)
+	XREAL_LIGHT_RGB_CAM_IF_NUM = 0
 
 	//XREAL Light Audio
 	XREAL_LIGHT_AUDIO_VID = uint16(0x0bda)
@@ -27,7 +28,7 @@ const (
 )
 
 // See https://github.com/badicsalex/ar-drivers-rs/blob/master/src/nreal_light.rs#L604
-var enableStreamingPacket = [34]byte{
+var enableSLAMStreamingPacket = []byte{
 	0x01, 0x00, // bmHint
 	0x01,                   // bFormatIndex
 	0x01,                   // bFrameIndex
@@ -46,13 +47,30 @@ var enableStreamingPacket = [34]byte{
 	0x18, // bMaxVersion
 }
 
+var enableRGBStreamingPacket = []byte{
+	0x01, 0x00, // bmHint
+	0x01,                   // bFormatIndex
+	0x01,                   // bFrameIndex
+	0x15, 0x16, 0x05, 0x00, // bFrameInterval (333333)
+	0x00, 0x00, // wKeyFrameRate
+	0x00, 0x00, // wPFrameRate
+	0x00, 0x00, // wCompQuality
+	0x00, 0x00, // wCompWindowSize
+	0x65, 0x00, // wDelay
+	0x00, 0xa9, 0xe6, 0x00, // dwMaxVideoFrameSize (15116544)
+	0x00, 0x80, 0x00, 0x00, // dwMaxPayloadTransferSize
+	0x80, 0xd1, 0xf0, 0x08, // dwClockFrequency
+	0x08, // bmFramingInfo
+	0xf0, // bPreferredVersion
+	0xa9, // bMinVersion
+	0x18, // bMaxVersion
+}
+
 type xrealLightSLAMCameraFrame struct {
 	/// Left frame data (640x480 grayscale pixels)
 	Left []byte
 	/// Right frame data (640x480 grayscale pixels)
 	Right []byte
-	/// Exact IMU timestamp when this frame was recorded
-	TimeSinceBoot uint64
 }
 
 func (frame *xrealLightSLAMCameraFrame) toImage() (image.Image, image.Image) {
@@ -61,24 +79,27 @@ func (frame *xrealLightSLAMCameraFrame) toImage() (image.Image, image.Image) {
 	return left, right
 }
 
-func (frame *xrealLightSLAMCameraFrame) writeToFolder(folderpath string) ([]string, error) {
+func (frame *xrealLightSLAMCameraFrame) WriteToFolder(folderpath string, prefixStr string) ([]string, error) {
 	var filepaths []string
 
 	imageLeft, imageRight := frame.toImage()
-
 	if imageLeft != nil {
-		filename := fmt.Sprintf("%d_left.jpeg", frame.TimeSinceBoot)
+		filename := fmt.Sprintf("%s_left.jpeg", prefixStr)
 		fpath := filepath.Join(folderpath, filename)
 		if err := imageToJpegFile(imageLeft, fpath); err == nil {
 			filepaths = append(filepaths, fpath)
+		} else {
+			return nil, err
 		}
 	}
 
 	if imageRight != nil {
-		filename := fmt.Sprintf("%d_right.jpeg", frame.TimeSinceBoot)
+		filename := fmt.Sprintf("%s_right.jpeg", prefixStr)
 		fpath := filepath.Join(folderpath, filename)
 		if err := imageToJpegFile(imageRight, fpath); err == nil {
 			filepaths = append(filepaths, fpath)
+		} else {
+			return nil, err
 		}
 	}
 
@@ -234,8 +255,8 @@ func (l *xrealLightCamera) initialize() error {
 		return fmt.Errorf("failed to SetAutoDetachKernelDriver(true) to SLAM cam: %w", err)
 	}
 
-	if err := l.slamCamera.ClaimInterface(1); err != nil {
-		return fmt.Errorf("failed to ClaimInterface(1) to SLAM cam: %w", err)
+	if err := l.slamCamera.ClaimInterface(XREAL_LIGHT_SLAM_CAM_IF_NUM); err != nil {
+		return fmt.Errorf("failed to ClaimInterface(%d) to SLAM cam: %w", XREAL_LIGHT_SLAM_CAM_IF_NUM, err)
 	}
 
 	_, err := l.slamCamera.ControlTransfer( // see libusb_control_transfer
@@ -243,21 +264,21 @@ func (l *xrealLightCamera) initialize() error {
 		0x01,    // the request field for the setup packet, UVC_SET_CUR
 		0x02<<8, // the value field for the setup packet, UVC_VS_COMMIT_CONTROL
 		0x01,    // the index field for the setup packet
-		enableStreamingPacket[:],
-		len(enableStreamingPacket),
+		enableSLAMStreamingPacket,
+		len(enableSLAMStreamingPacket),
 		1000, // timeout, milliseconds
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to send control transfer message to SLAM cam: %w", err)
+		return fmt.Errorf("failed to send control transfer message to RGB cam: %w", err)
 	}
 
 	if err := l.rgbCamera.SetAutoDetachKernelDriver(true); err != nil {
 		return fmt.Errorf("failed to SetAutoDetachKernelDriver(true) to RGB cam: %w", err)
 	}
 
-	if err := l.rgbCamera.ClaimInterface(1); err != nil {
-		return fmt.Errorf("failed to ClaimInterface(1) to RGB cam: %w", err)
+	if err := l.rgbCamera.ClaimInterface(XREAL_LIGHT_RGB_CAM_IF_NUM); err != nil {
+		return fmt.Errorf("failed to ClaimInterface(%d) to RGB cam: %w", XREAL_LIGHT_RGB_CAM_IF_NUM, err)
 	}
 
 	_, err = l.rgbCamera.ControlTransfer( // see libusb_control_transfer
@@ -265,8 +286,8 @@ func (l *xrealLightCamera) initialize() error {
 		0x01,    // the request field for the setup packet, UVC_SET_CUR
 		0x02<<8, // the value field for the setup packet, UVC_VS_COMMIT_CONTROL
 		0x01,    // the index field for the setup packet
-		enableStreamingPacket[:],
-		len(enableStreamingPacket),
+		enableRGBStreamingPacket,
+		len(enableRGBStreamingPacket),
 		1000, // timeout, milliseconds
 	)
 	if err != nil {
@@ -278,7 +299,7 @@ func (l *xrealLightCamera) initialize() error {
 	return nil
 }
 
-func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame, error) {
+func (l *xrealLightCamera) getRawBytesFromSLAMCamera() ([]byte, error) {
 	data := make([]byte, 615908*2)
 	for {
 		receivedCount, err := l.slamCamera.BulkTransfer(0x81, data, len(data), 0 /* unlimited timeout */)
@@ -286,17 +307,51 @@ func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame,
 			return nil, fmt.Errorf("failed to receive data from SLAM camera: %w", err)
 		}
 		if receivedCount == 615908 && data[0] != 0 {
-			data = data[:615098]
+			data = data[:receivedCount]
 			break
 		}
-		slog.Debug(fmt.Sprintf("got %d instead of 615908, try again", receivedCount))
+		slog.Warn(fmt.Sprintf("got data size %d, skip and try again", receivedCount))
+	}
+	return data, nil
+}
+
+func (l *xrealLightCamera) getRawBytesFromRGBCamera() ([]byte, error) {
+	data := make([]byte, 15116544*2)
+	for {
+		receivedCount, err := l.rgbCamera.BulkTransfer(0x81, data, len(data), 0 /* unlimited timeout */)
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive data from RGB camera: %w", err)
+		}
+		if receivedCount != 0 {
+			slog.Info(fmt.Sprintf("received %d bytes of data", receivedCount))
+			data = data[:receivedCount]
+			break
+		}
+		slog.Warn("got empty data, try again")
+	}
+	return data, nil
+}
+
+func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame, error) {
+	data, err := l.getRawBytesFromSLAMCamera()
+	if err != nil {
+		return nil, err
+	}
+	return BuildSLAMCameraFrame(data)
+}
+
+func BuildSLAMCameraFrame(data []byte) (*xrealLightSLAMCameraFrame, error) {
+	if len(data) != 615908 || data[0] == 0 {
+		return nil, fmt.Errorf("cannot handle received data that's different from size 615908")
 	}
 
 	// Remove headers occurring every 0x8000 bytes (max transfer size)
 	readIndex := 0
-	writeIndex := 0
+	var dataCleaned []byte
+
 	for readIndex < len(data) {
 		headerSize := int(data[readIndex])
+
 		readIndex += headerSize
 
 		// Calculate length to copy and adjust indices
@@ -306,23 +361,14 @@ func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame,
 			readEnd = len(data)
 		}
 
-		copy(data[writeIndex:], data[readIndex:readEnd])
-		readIndex += length
-		writeIndex += length
-	}
-
-	// Truncate bulkData to the actual length after header removal
-	data = data[:writeIndex]
-
-	isAllZero := true
-	for _, b := range data {
-		if b != 0 {
-			isAllZero = false
+		if headerSize == 12 {
+			dataCleaned = append(dataCleaned, data[readIndex:readEnd]...)
 		}
+
+		readIndex = readEnd
 	}
-	if isAllZero {
-		return nil, fmt.Errorf("got empty frame, better try again?")
-	}
+
+	data = dataCleaned
 
 	// Process bulk data to extract left and right frames
 	var left, right []byte
@@ -331,17 +377,9 @@ func (l *xrealLightCamera) getFrameFromSLAMCamera() (*xrealLightSLAMCameraFrame,
 		right = append(right, data[(i*2+1)*640:(i*2+2)*640]...)
 	}
 
-	// Calculate timestamp from bulk data (this is probably not right)
-	var timeSinceBoot uint64
-	if len(data) >= 614400+8 {
-		timeSinceBoot = binary.LittleEndian.Uint64(data[614400 : 614400+8])
-	}
-	timeSinceBoot = (timeSinceBoot/1000 + 37600) / 1000 // milliseconds
-
 	return &xrealLightSLAMCameraFrame{
-		Left:          left,
-		Right:         right,
-		TimeSinceBoot: timeSinceBoot,
+		Left:  left,
+		Right: right,
 	}, nil
 }
 
@@ -350,6 +388,9 @@ func (l *xrealLightCamera) disconnect() error {
 
 	var errRGB error
 	if l.rgbCamera != nil {
+		l.rgbCamera.SetInterfaceAltSetting(XREAL_LIGHT_RGB_CAM_IF_NUM, 0)
+		l.rgbCamera.ReleaseInterface(XREAL_LIGHT_RGB_CAM_IF_NUM)
+		l.rgbCamera.AttachKernelDriver(XREAL_LIGHT_RGB_CAM_IF_NUM)
 		errRGB = l.rgbCamera.Close()
 		if errRGB == nil {
 			l.rgbCamera = nil
@@ -358,6 +399,9 @@ func (l *xrealLightCamera) disconnect() error {
 
 	var errSLAM error
 	if l.slamCamera != nil {
+		l.slamCamera.SetInterfaceAltSetting(XREAL_LIGHT_SLAM_CAM_IF_NUM, 0)
+		l.slamCamera.ReleaseInterface(XREAL_LIGHT_SLAM_CAM_IF_NUM)
+		l.slamCamera.AttachKernelDriver(XREAL_LIGHT_SLAM_CAM_IF_NUM)
 		errSLAM = l.slamCamera.Close()
 		if errSLAM == nil {
 			l.slamCamera = nil

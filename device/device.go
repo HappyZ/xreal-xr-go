@@ -38,6 +38,7 @@ type Device interface {
 
 	// For development testing only
 	DevExecuteAndRead(device string, intput []string)
+	GetImagesDataDev(folderpath string) ([]string, error)
 }
 
 // DisplayMode represents the display mode of AR glasses.
