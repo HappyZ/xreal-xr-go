@@ -3,14 +3,11 @@
 XREAL Light XR stuff. This is for personal interests and research.
 
 ### MacOS
-```
-brew install hidapi
-brew install libusb
-```
+Mac has a poor support on usb devices and needs to unbind with MacOS usb driver to use libusb and hidapi better. Will drop the support until we add Mac native implementations for now.
 
 ### Linux
 ```
-sudo apt install libudev-dev libusb-1.0-0-dev
+sudo apt install libudev-dev libusb-1.0-0-dev libhidapi-dev libuvc-dev
 ```
 
 ###

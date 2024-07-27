@@ -7,6 +7,16 @@ import (
 	hid "github.com/sstallion/go-hid"
 )
 
+const (
+	readDeviceTimeout   = 30 * time.Millisecond
+	readPacketFrequency = 10 * time.Millisecond
+
+	waitForPacketTimeout = 1 * time.Second
+	retryMaxAttempts     = 3
+
+	heartBeatTimeout = 500 * time.Millisecond
+)
+
 // Device is an interface representing XREAL glasses.
 type Device interface {
 	Name() string

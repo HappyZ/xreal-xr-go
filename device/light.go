@@ -10,16 +10,6 @@ import (
 	"xreal-light-xr-go/constant"
 )
 
-const (
-	readDeviceTimeout   = 30 * time.Millisecond
-	readPacketFrequency = 10 * time.Millisecond
-
-	waitForPacketTimeout = 1 * time.Second
-	retryMaxAttempts     = 3
-
-	heartBeatTimeout = 500 * time.Millisecond
-)
-
 type xrealLight struct {
 	mcu     *xrealLightMCU
 	ov580   *xrealLightOV580
